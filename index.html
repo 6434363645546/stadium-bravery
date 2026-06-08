@@ -367,6 +367,62 @@
   .meta-item { font-size: 0.8rem; color: #475569; }
   .meta-item span { color: #94a3b8; font-weight: 600; }
 
+  /* Stats row */
+  .result-stats {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .stat-pill {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #64748b;
+  }
+  .stat-pill svg { opacity: 0.6; }
+
+  /* Powers */
+  .powers-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #334155;
+    margin-bottom: 10px;
+  }
+  .powers-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .power-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 4px;
+    background: #0b0f1a;
+    border: 1px solid #1e293b;
+    border-radius: 8px;
+  }
+  .power-card img {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: #1e293b;
+  }
+  .power-card span {
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: #64748b;
+    text-align: center;
+    line-height: 1.2;
+  }
+
   .btn-open {
     display: block;
     width: 100%;
@@ -614,6 +670,18 @@
           <div class="meta-item">Posted <span id="resultDate"></span></div>
           <div class="meta-item">Mode <span id="resultMode"></span></div>
         </div>
+        <div class="result-stats">
+          <div class="stat-pill">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            <span id="resultLikes">0</span>
+          </div>
+          <div class="stat-pill">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span id="resultViews">0</span>
+          </div>
+        </div>
+        <div class="powers-label">Final Round Powers</div>
+        <div class="powers-grid" id="powersGrid"></div>
         <a class="btn-open" id="resultLink" href="#" target="_blank" rel="noopener">
           Open Build on stadiumbuilds.io →
         </a>
@@ -913,6 +981,25 @@ function showResult(build, total) {
 
   document.getElementById('resultLink').href = `https://stadiumbuilds.io/build/${build.id}`;
   document.getElementById('resultRandomTag').textContent = `Randomly picked from ${total} build${total !== 1 ? 's' : ''}`;
+
+  // Likes and views
+  document.getElementById('resultLikes').textContent = (build.like_count ?? 0).toLocaleString();
+  document.getElementById('resultViews').textContent = (build.view_count ?? 0).toLocaleString();
+
+  // Final round powers
+  const powersGrid = document.getElementById('powersGrid');
+  powersGrid.innerHTML = '';
+  const powers = (build.final_round_powers || []).slice().sort((a, b) => a.power_slot - b.power_slot);
+  if (powers.length) {
+    powers.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'power-card';
+      card.innerHTML = `<img src="${p.icon_url}" alt="${p.name}" title="${p.name}" loading="lazy"><span>${p.name}</span>`;
+      powersGrid.appendChild(card);
+    });
+  } else {
+    powersGrid.innerHTML = '<div style="grid-column:1/-1;font-size:0.75rem;color:#475569;text-align:center;padding:8px 0">No powers data</div>';
+  }
 
   document.getElementById('resultPlaceholder').style.display = 'none';
   document.getElementById('resultCard').classList.add('visible');
