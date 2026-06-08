@@ -1,0 +1,931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stadium Bravery</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #0b0f1a;
+    color: #e2e8f0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 48px 32px;
+  }
+
+  /* ── Header ── */
+  .header {
+    width: 100%;
+    max-width: 1200px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-size: 2.4rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: #fff;
+  }
+
+  .rules-trigger {
+    color: #94a3b8;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.15s;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .rules-trigger:hover { color: #cbd5e1; }
+
+  .subtitle {
+    width: 100%;
+    max-width: 1200px;
+    color: #475569;
+    font-size: 0.95rem;
+    margin-bottom: 36px;
+  }
+
+  /* ── Two-panel layout ── */
+  .layout {
+    width: 100%;
+    max-width: 1200px;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 28px;
+    align-items: start;
+  }
+
+  /* ── Left panel ── */
+  .panel {
+    background: #0d1424;
+    border: 1px solid #1e293b;
+    border-radius: 16px;
+    padding: 24px;
+  }
+
+  .panel-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: #334155;
+    margin-bottom: 16px;
+  }
+
+  /* Search + clear row */
+  .search-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+    align-items: center;
+  }
+
+  .search-input {
+    flex: 1;
+    padding: 9px 14px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: #0b0f1a;
+    color: #e2e8f0;
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .search-input::placeholder { color: #334155; }
+  .search-input:focus { border-color: #334155; }
+
+  .clear-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: transparent;
+    color: #475569;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    display: none;
+  }
+  .clear-btn.visible { display: inline-block; }
+  .clear-btn:hover { border-color: #334155; color: #94a3b8; }
+
+  /* Role tabs */
+  .role-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .role-tab {
+    padding: 7px 20px;
+    border-radius: 20px;
+    border: 1px solid #1e293b;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .role-tab:hover { border-color: #334155; color: #94a3b8; }
+  .role-tab.active { background: #1e40af; border-color: #1e40af; color: #fff; }
+  .role-tab[data-role="Tank"].active { background: #1d4ed8; border-color: #1d4ed8; }
+  .role-tab[data-role="Damage"].active { background: #b91c1c; border-color: #b91c1c; }
+  .role-tab[data-role="Support"].active { background: #047857; border-color: #047857; }
+
+  /* Hero grid */
+  .hero-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+
+  .hero-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 6px;
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background: #0b0f1a;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .hero-card:hover { border-color: #334155; background: #1e293b; }
+  .hero-card.selected { border-color: #3b82f6; background: #1e3a5f; }
+
+  .hero-card img {
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #1e293b;
+  }
+
+  .hero-card span {
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-align: center;
+    color: #94a3b8;
+    line-height: 1.2;
+  }
+  .hero-card.selected span { color: #93c5fd; }
+
+  /* Role group labels */
+  .role-group-label {
+    grid-column: 1 / -1;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 4px 2px 2px;
+    margin-top: 4px;
+  }
+  .role-group-label.Tank { color: #60a5fa; }
+  .role-group-label.Damage { color: #f87171; }
+  .role-group-label.Support { color: #34d399; }
+
+  /* Role roll buttons */
+  .role-roll-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .btn-role-roll {
+    flex: 1;
+    padding: 9px 4px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .btn-role-roll:hover { border-color: #334155; color: #94a3b8; }
+  .btn-role-roll[data-role="Tank"]:hover { border-color: #1d4ed8; color: #60a5fa; background: #0f1f3d; }
+  .btn-role-roll[data-role="Damage"]:hover { border-color: #b91c1c; color: #f87171; background: #1c0a0a; }
+  .btn-role-roll[data-role="Support"]:hover { border-color: #047857; color: #34d399; background: #022c1f; }
+
+  /* Filters */
+  .filters {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .filter-label {
+    font-size: 0.78rem;
+    color: #475569;
+    white-space: nowrap;
+  }
+  .toggle-group { display: flex; gap: 4px; }
+  .toggle-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid #1e293b;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .toggle-btn:hover { border-color: #334155; color: #94a3b8; }
+  .toggle-btn.active { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+
+  /* Roll buttons */
+  .cta-row {
+    display: flex;
+    gap: 10px;
+  }
+  .btn-random {
+    flex: 1;
+    padding: 13px 20px;
+    border-radius: 10px;
+    border: none;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s, transform 0.1s;
+    letter-spacing: 0.3px;
+  }
+  .btn-random:hover { opacity: 0.9; }
+  .btn-random:active { transform: scale(0.98); }
+  .btn-random:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Right panel ── */
+  .right-panel {
+    position: sticky;
+    top: 48px;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .error-msg {
+    color: #f87171;
+    font-size: 0.85rem;
+    padding: 12px 16px;
+    background: #1c0a0a;
+    border-radius: 10px;
+    border: 1px solid #7f1d1d;
+    display: none;
+  }
+  .error-msg.visible { display: block; }
+
+  /* Result card */
+  .result-card {
+    background: #0d1424;
+    border: 1px solid #1e293b;
+    border-radius: 16px;
+    overflow: hidden;
+    display: none;
+  }
+  .result-card.visible { display: block; animation: resultIn 0.25s ease; }
+
+  @keyframes resultIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .result-hero-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 22px 24px;
+    background: linear-gradient(135deg, #0f172a, #1a2540);
+    border-bottom: 1px solid #1e293b;
+  }
+
+  .result-hero-img {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    border: 2px solid #334155;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .result-hero-info h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #f8fafc;
+    margin-bottom: 6px;
+  }
+
+  .role-badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 10px;
+  }
+  .role-badge.Tank { background: #1e3a8a; color: #93c5fd; }
+  .role-badge.Damage { background: #7f1d1d; color: #fca5a5; }
+  .role-badge.Support { background: #064e3b; color: #6ee7b7; }
+
+  .result-body { padding: 22px 24px; }
+
+  .result-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 12px;
+    line-height: 1.4;
+  }
+
+  .result-meta {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+  .meta-item { font-size: 0.8rem; color: #475569; }
+  .meta-item span { color: #94a3b8; font-weight: 600; }
+
+  .btn-open {
+    display: block;
+    width: 100%;
+    padding: 13px;
+    border-radius: 8px;
+    border: none;
+    background: #1e3a8a;
+    color: #93c5fd;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+    transition: background 0.15s;
+  }
+  .btn-open:hover { background: #1d4ed8; color: #fff; }
+
+  .result-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .btn-reroll {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-reroll:hover { border-color: #475569; color: #94a3b8; background: #0b0f1a; }
+
+  .btn-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: transparent;
+    color: #64748b;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .btn-copy:hover { border-color: #475569; color: #94a3b8; }
+  .btn-copy.copied { border-color: #047857; color: #34d399; }
+
+  .result-random-tag {
+    font-size: 0.72rem;
+    color: #334155;
+    text-align: center;
+    margin-top: 12px;
+  }
+
+  /* Placeholder state for right panel */
+  .result-placeholder {
+    background: #0d1424;
+    border: 1px dashed #1e293b;
+    border-radius: 16px;
+    padding: 48px 24px;
+    text-align: center;
+    color: #334155;
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+  .result-placeholder .placeholder-icon {
+    font-size: 2.5rem;
+    margin-bottom: 12px;
+    display: block;
+    opacity: 0.4;
+  }
+
+  /* Spinner */
+  .spinner {
+    display: none;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(255,255,255,0.2);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    margin: 0 auto;
+  }
+  .btn-random.loading .btn-text { display: none; }
+  .btn-random.loading .spinner { display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Rules modal */
+  .modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal-backdrop.open { display: flex; animation: fadeIn 0.15s ease; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    background: #0d1424;
+    border: 1px solid #1e293b;
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 460px;
+    width: 100%;
+    animation: slideUp 0.2s ease;
+  }
+  @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  .modal h3 {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: #f8fafc;
+    margin-bottom: 24px;
+  }
+
+  .rule { margin-bottom: 20px; }
+  .rule:last-of-type { margin-bottom: 28px; }
+  .rule-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    margin-bottom: 5px;
+  }
+  .rule-num { color: #3b82f6; margin-right: 6px; }
+  .rule-body { font-size: 0.83rem; color: #64748b; line-height: 1.6; }
+
+  .modal-close {
+    display: block;
+    width: 100%;
+    padding: 11px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: transparent;
+    color: #475569;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .modal-close:hover { border-color: #334155; color: #94a3b8; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Stadium Bravery</h1>
+  <span class="rules-trigger" id="rulesTrigger">📋 Rules of Bravery</span>
+</div>
+<p class="subtitle">Pick a hero. Get a random build. No excuses.</p>
+
+<div class="layout">
+
+  <!-- LEFT: Hero picker -->
+  <div class="panel">
+    <div class="panel-title">Choose Hero</div>
+
+    <div class="search-row">
+      <input class="search-input" id="heroSearch" type="text" placeholder="Search heroes…" autocomplete="off">
+      <button class="clear-btn" id="clearBtn">✕ Clear selection</button>
+    </div>
+
+    <div class="role-tabs">
+      <button class="role-tab active" data-role="All">All</button>
+      <button class="role-tab" data-role="Tank">Tank</button>
+      <button class="role-tab" data-role="Damage">Damage</button>
+      <button class="role-tab" data-role="Support">Support</button>
+    </div>
+
+    <div class="hero-grid" id="heroGrid">
+      <div style="color:#475569;font-size:0.875rem;grid-column:1/-1;padding:20px 0;">Loading heroes...</div>
+    </div>
+
+    <div class="role-roll-row">
+      <button class="btn-role-roll" data-role="Tank">🛡 Any Tank</button>
+      <button class="btn-role-roll" data-role="Damage">⚔️ Any Damage</button>
+      <button class="btn-role-roll" data-role="Support">💚 Any Support</button>
+    </div>
+
+    <div class="filters">
+      <div class="filter-group">
+        <span class="filter-label">Builds from:</span>
+        <div class="toggle-group" id="timeFilter">
+          <button class="toggle-btn active" data-days="30">Last 30 days</button>
+          <button class="toggle-btn" data-days="0">All time</button>
+        </div>
+      </div>
+      <div class="filter-group">
+        <span class="filter-label">Mode:</span>
+        <div class="toggle-group" id="modeFilter">
+          <button class="toggle-btn active" data-mode="">Any</button>
+          <button class="toggle-btn" data-mode="competitive">Ranked</button>
+          <button class="toggle-btn" data-mode="quickplay">Quick Play</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cta-row">
+      <button class="btn-random" id="rollBtn" disabled>
+        <span class="btn-text">🎲 Roll Random Build</span>
+        <div class="spinner"></div>
+      </button>
+      <button class="btn-random" id="rollAnyBtn" style="flex:0;padding:13px 20px;background:linear-gradient(135deg,#334155,#1e293b);align-self:stretch;" title="Random hero + random build">
+        <span class="btn-text">🎰 Any Hero</span>
+        <div class="spinner"></div>
+      </button>
+    </div>
+    <div style="text-align:center;margin-top:10px;font-size:0.75rem;color:#334155;">
+      Press <kbd style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:1px 7px;font-size:0.72rem;color:#64748b;font-family:inherit;">Space</kbd> to reroll
+    </div>
+  </div>
+
+  <!-- RIGHT: Result -->
+  <div class="right-panel">
+    <div class="error-msg" id="errorMsg"></div>
+
+    <div class="result-placeholder" id="resultPlaceholder">
+      <span class="placeholder-icon">🎲</span>
+      Select a hero and roll to get your build
+    </div>
+
+    <div class="result-card" id="resultCard">
+      <div class="result-hero-banner">
+        <img class="result-hero-img" id="resultHeroImg" src="" alt="">
+        <div class="result-hero-info">
+          <h2 id="resultHeroName"></h2>
+          <span class="role-badge" id="resultRoleBadge"></span>
+        </div>
+      </div>
+      <div class="result-body">
+        <div class="result-title" id="resultTitle"></div>
+        <div class="result-meta">
+          <div class="meta-item">Season <span id="resultSeason"></span></div>
+          <div class="meta-item">By <span id="resultAuthor"></span></div>
+          <div class="meta-item">Posted <span id="resultDate"></span></div>
+          <div class="meta-item">Mode <span id="resultMode"></span></div>
+        </div>
+        <a class="btn-open" id="resultLink" href="#" target="_blank" rel="noopener">
+          Open Build on stadiumbuilds.io →
+        </a>
+        <div class="result-actions">
+          <button class="btn-reroll" id="rerollBtn">🎲 Reroll</button>
+          <button class="btn-copy" id="copyBtn">⎘ Copy link</button>
+        </div>
+        <div class="result-random-tag" id="resultRandomTag"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Rules modal -->
+<div class="modal-backdrop" id="rulesModal">
+  <div class="modal">
+    <h3>Rules of Bravery</h3>
+    <div class="rule">
+      <div class="rule-title"><span class="rule-num">1.</span>No Turning Back</div>
+      <div class="rule-body">There is no return. Once you got your item build, stick with it!</div>
+    </div>
+    <div class="rule">
+      <div class="rule-title"><span class="rule-num">2.</span>Buy items and pick powers in the right order</div>
+      <div class="rule-body">The items have to be bought and the powers must be picked in the correct order.</div>
+    </div>
+    <div class="rule">
+      <div class="rule-title"><span class="rule-num">3.</span>Never surrender</div>
+      <div class="rule-body">Fight until the last round. There is no surrendering in the stadium.</div>
+    </div>
+    <button class="modal-close" id="rulesClose">Got it</button>
+  </div>
+</div>
+
+<script>
+const SUPA_URL = 'https://qkdvetofbsoynkfprlos.supabase.co';
+const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZHZldG9mYnNveW5rZnBybG9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU3Mjc0NDEsImV4cCI6MjA2MTMwMzQ0MX0.Moy2MzlEQ0w1cqvnMs3qAV6Mzdm8R1v_YSo7Zw93mG8';
+const HEADERS = { 'apikey': ANON_KEY, 'Authorization': 'Bearer ' + ANON_KEY, 'Content-Type': 'application/json' };
+
+let allHeroes = [];
+let selectedHeroIds = new Set();
+let activeRole = 'All';
+let daysFilter = 30;
+let modeFilter = '';
+let searchQuery = '';
+
+async function loadHeroes() {
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/heroes?select=id,name,role,portrait_url&enabled=eq.true&order=name.asc`, { headers: HEADERS });
+    allHeroes = await r.json();
+    renderHeroes();
+  } catch(e) {
+    document.getElementById('heroGrid').innerHTML = '<div style="color:#f87171">Failed to load heroes.</div>';
+  }
+}
+
+function heroCard(h) {
+  return `<div class="hero-card ${selectedHeroIds.has(h.id) ? 'selected' : ''}" data-id="${h.id}" onclick="selectHero('${h.id}')">
+    <img src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.webp"
+         onerror="this.src='https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.png'"
+         alt="${h.name}">
+    <span>${h.name}</span>
+  </div>`;
+}
+
+function renderHeroes() {
+  const grid = document.getElementById('heroGrid');
+  const q = searchQuery.trim().toLowerCase();
+  let pool = activeRole === 'All' ? allHeroes : allHeroes.filter(h => h.role === activeRole);
+  if (q) pool = pool.filter(h => h.name.toLowerCase().includes(q));
+
+  if (pool.length === 0) {
+    grid.innerHTML = '<div style="color:#475569;font-size:0.875rem;grid-column:1/-1;padding:20px 0;">No heroes found.</div>';
+    return;
+  }
+
+  if (activeRole === 'All' && !q) {
+    const roleOrder = ['Tank', 'Damage', 'Support'];
+    let html = '';
+    for (const role of roleOrder) {
+      const group = pool.filter(h => h.role === role);
+      if (!group.length) continue;
+      html += `<div class="role-group-label ${role}">${role}</div>`;
+      html += group.map(heroCard).join('');
+    }
+    grid.innerHTML = html;
+  } else {
+    grid.innerHTML = pool.map(heroCard).join('');
+  }
+}
+
+const HERO_ICON_OVERRIDES = {
+  'Cassidy': 'cassidy',
+  'Kiriko': 'kiriko',
+  'Lúcio': 'Lucio',
+  'Soldier: 76': 'Soldier_76',
+  'Torbjörn': 'Torbjorn',
+};
+
+function encodeHeroName(name) {
+  if (HERO_ICON_OVERRIDES[name]) return HERO_ICON_OVERRIDES[name];
+  return name.replace(/ /g, '_');
+}
+
+function selectHero(id) {
+  if (selectedHeroIds.has(id)) {
+    selectedHeroIds.delete(id);
+  } else {
+    selectedHeroIds.add(id);
+  }
+  const card = document.querySelector(`.hero-card[data-id="${id}"]`);
+  if (card) card.classList.toggle('selected', selectedHeroIds.has(id));
+  updateRollBtn();
+}
+
+function updateRollBtn() {
+  const count = selectedHeroIds.size;
+  const rollBtn = document.getElementById('rollBtn');
+  rollBtn.disabled = count === 0;
+  rollBtn.querySelector('.btn-text').textContent =
+    count > 1 ? `🎲 Roll Random Build (${count} heroes)` : '🎲 Roll Random Build';
+  document.getElementById('clearBtn').classList.toggle('visible', count > 0);
+}
+
+function clearSelection() {
+  selectedHeroIds.clear();
+  document.querySelectorAll('.hero-card.selected').forEach(c => c.classList.remove('selected'));
+  updateRollBtn();
+  document.getElementById('resultCard').classList.remove('visible');
+  document.getElementById('resultPlaceholder').style.display = '';
+  document.getElementById('errorMsg').classList.remove('visible');
+}
+
+// Search
+document.getElementById('heroSearch').addEventListener('input', e => {
+  searchQuery = e.target.value;
+  renderHeroes();
+});
+
+// Role tabs
+document.querySelectorAll('.role-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.role-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    activeRole = tab.dataset.role;
+    renderHeroes();
+  });
+});
+
+// Time filter
+document.querySelectorAll('#timeFilter .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#timeFilter .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    daysFilter = parseInt(btn.dataset.days);
+  });
+});
+
+// Mode filter
+document.querySelectorAll('#modeFilter .toggle-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#modeFilter .toggle-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    modeFilter = btn.dataset.mode;
+  });
+});
+
+// Clear
+document.getElementById('clearBtn').addEventListener('click', clearSelection);
+
+// Roll by role
+document.querySelectorAll('.btn-role-roll').forEach(btn => {
+  btn.addEventListener('click', () => rollByRole(btn.dataset.role));
+});
+
+// Copy build link
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const link = document.getElementById('resultLink').href;
+  if (!link || link === '#') return;
+  navigator.clipboard.writeText(link).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = '✓ Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '⎘ Copy link'; btn.classList.remove('copied'); }, 2000);
+  });
+});
+
+// Keyboard shortcut
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement.tagName;
+  if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'A') return;
+  if ((e.key === ' ' || e.key === 'Enter') && document.getElementById('resultCard').classList.contains('visible')) {
+    e.preventDefault();
+    rollBuild();
+  }
+});
+
+document.getElementById('rollBtn').addEventListener('click', rollBuild);
+document.getElementById('rerollBtn').addEventListener('click', rollBuild);
+document.getElementById('rollAnyBtn').addEventListener('click', rollAnyHero);
+
+async function rollByRole(role) {
+  if (!allHeroes.length) return;
+  const pool = allHeroes.filter(h => h.role === role);
+  if (!pool.length) return;
+  selectedHeroIds.clear();
+  const randomHero = pool[Math.floor(Math.random() * pool.length)];
+  selectedHeroIds.add(randomHero.id);
+  updateRollBtn();
+  renderHeroes();
+  await rollBuild();
+}
+
+async function rollAnyHero() {
+  if (!allHeroes.length) return;
+  const btn = document.getElementById('rollAnyBtn');
+  btn.classList.add('loading');
+  btn.disabled = true;
+  selectedHeroIds.clear();
+  const randomHero = allHeroes[Math.floor(Math.random() * allHeroes.length)];
+  selectedHeroIds.add(randomHero.id);
+  document.getElementById('rollBtn').querySelector('.btn-text').textContent = '🎲 Roll Random Build';
+  updateRollBtn();
+  renderHeroes();
+  try {
+    await rollBuild();
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+async function rollBuild() {
+  if (!selectedHeroIds.size) return;
+  const btn = document.getElementById('rollBtn');
+  const errEl = document.getElementById('errorMsg');
+  btn.classList.add('loading');
+  btn.disabled = true;
+  errEl.classList.remove('visible');
+
+  try {
+    const body = {
+      p_hero_ids: Array.from(selectedHeroIds),
+      p_limit: 200,
+      p_offset: 0,
+      p_sort_by: 'newest'
+    };
+    const r = await fetch(`${SUPA_URL}/rest/v1/rpc/filter_builds_public_v18`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify(body)
+    });
+    let builds = await r.json();
+
+    if (!Array.isArray(builds) || builds.length === 0) {
+      throw new Error('No builds found for the selected hero' + (selectedHeroIds.size > 1 ? 'es' : '') + '.');
+    }
+
+    if (daysFilter > 0) {
+      const cutoff = Date.now() - daysFilter * 24 * 60 * 60 * 1000;
+      const recent = builds.filter(b => new Date(b.created_at).getTime() > cutoff);
+      if (recent.length > 0) builds = recent;
+    }
+
+    if (modeFilter) {
+      const byMode = builds.filter(b => b.mode && b.mode.toLowerCase() === modeFilter);
+      if (byMode.length > 0) builds = byMode;
+    }
+
+    const build = builds[Math.floor(Math.random() * builds.length)];
+    showResult(build, builds.length);
+  } catch(e) {
+    errEl.textContent = e.message || 'Something went wrong. Try again.';
+    errEl.classList.add('visible');
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+function showResult(build, total) {
+  document.getElementById('resultHeroImg').src =
+    `https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(build.hero_name)}.webp`;
+  document.getElementById('resultHeroName').textContent = build.hero_name;
+
+  const badge = document.getElementById('resultRoleBadge');
+  badge.textContent = build.hero_role;
+  badge.className = `role-badge ${build.hero_role}`;
+
+  document.getElementById('resultTitle').textContent = build.title;
+  document.getElementById('resultSeason').textContent = build.season_number || '?';
+  document.getElementById('resultAuthor').textContent = build.user_username || 'Unknown';
+  document.getElementById('resultMode').textContent = build.mode ? (build.mode.charAt(0).toUpperCase() + build.mode.slice(1)) : '?';
+
+  const date = new Date(build.created_at);
+  document.getElementById('resultDate').textContent = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  document.getElementById('resultLink').href = `https://stadiumbuilds.io/build/${build.id}`;
+  document.getElementById('resultRandomTag').textContent = `Randomly picked from ${total} build${total !== 1 ? 's' : ''}`;
+
+  document.getElementById('resultPlaceholder').style.display = 'none';
+  document.getElementById('resultCard').classList.add('visible');
+}
+
+loadHeroes();
+
+// Rules modal
+const rulesModal = document.getElementById('rulesModal');
+document.getElementById('rulesTrigger').addEventListener('click', () => rulesModal.classList.add('open'));
+document.getElementById('rulesClose').addEventListener('click', () => rulesModal.classList.remove('open'));
+rulesModal.addEventListener('click', e => { if (e.target === rulesModal) rulesModal.classList.remove('open'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') rulesModal.classList.remove('open'); });
+</script>
+</body>
+</html>
