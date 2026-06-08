@@ -361,7 +361,7 @@
   .result-meta {
     display: flex;
     gap: 16px;
-    margin-bottom: 20px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
   }
   .meta-item { font-size: 0.8rem; color: #475569; }
@@ -623,8 +623,7 @@
       <div class="filter-group">
         <span class="filter-label">Mode:</span>
         <div class="toggle-group" id="modeFilter">
-          <button class="toggle-btn active" data-mode="">Any</button>
-          <button class="toggle-btn" data-mode="competitive">Ranked</button>
+          <button class="toggle-btn active" data-mode="competitive">Ranked</button>
           <button class="toggle-btn" data-mode="quickplay">Quick Play</button>
         </div>
       </div>
@@ -725,7 +724,7 @@ let allHeroes = [];
 let selectedHeroIds = new Set();
 let activeRole = 'All';
 let daysFilter = 30;
-let modeFilter = '';
+let modeFilter = 'competitive';
 let searchQuery = '';
 
 async function loadHeroes() {
