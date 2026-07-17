@@ -15,6 +15,7 @@
 <meta name="twitter:title" content="Stadium Bravery">
 <meta name="twitter:description" content="Pick a hero, get a random Overwatch Stadium build, or host a 5v5 custom lobby where everyone rolls together.">
 <meta name="twitter:image" content="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-Reinhardt.webp">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' https://qkdvetofbsoynkfprlos.supabase.co data:; connect-src 'self' https://qkdvetofbsoynkfprlos.supabase.co wss://qkdvetofbsoynkfprlos.supabase.co; font-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none';">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1248,7 +1249,7 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.106.2/dist/umd/supabase.min.js" integrity="sha384-4Cjkyy4cE1EgIS0C+Y3xzGmJ2noQFRRU91yKAW8IxtPfVtbQXPMqadSc3sYnjwou" crossorigin="anonymous"></script>
 <script>
 const SUPA_URL = 'https://qkdvetofbsoynkfprlos.supabase.co';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZHZldG9mYnNveW5rZnBybG9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU3Mjc0NDEsImV4cCI6MjA2MTMwMzQ0MX0.Moy2MzlEQ0w1cqvnMs3qAV6Mzdm8R1v_YSo7Zw93mG8';
@@ -1311,13 +1312,29 @@ async function loadHeroes() {
 
 function heroCard(h) {
   const safeName = escapeHtml(h.name);
-  return `<button type="button" class="hero-card ${selectedHeroIds.has(h.id) ? 'selected' : ''}" data-id="${h.id}" aria-pressed="${selectedHeroIds.has(h.id)}" aria-label="${safeName}" onclick="selectHero('${h.id}')">
-    <img src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.webp"
-         onerror="this.src='https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.png'"
-         alt="">
+  const safeId = escapeHtml(h.id);
+  const iconBase = escapeHtml(encodeHeroName(h.name));
+  return `<button type="button" class="hero-card ${selectedHeroIds.has(h.id) ? 'selected' : ''}" data-id="${safeId}" data-icon-base="${iconBase}" aria-pressed="${selectedHeroIds.has(h.id)}" aria-label="${safeName}">
+    <img src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.webp" alt="">
     <span>${safeName}</span>
   </button>`;
 }
+
+// Delegated instead of inline onclick/onerror attributes, so no HTML we
+// generate ever needs an inline event-handler string - that in turn lets the
+// page ship a CSP with no 'unsafe-inline' on scripts.
+document.getElementById('heroGrid').addEventListener('click', e => {
+  const card = e.target.closest('.hero-card');
+  if (card && card.dataset.id) selectHero(card.dataset.id);
+});
+document.getElementById('heroGrid').addEventListener('error', e => {
+  const img = e.target;
+  if (img.tagName !== 'IMG') return;
+  const card = img.closest('.hero-card');
+  if (!card || img.dataset.fallbackApplied) return;
+  img.dataset.fallbackApplied = '1';
+  img.src = `https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${card.dataset.iconBase}.png`;
+}, true);
 
 function renderHeroes() {
   const grid = document.getElementById('heroGrid');
@@ -1574,7 +1591,7 @@ function showResult(build, total) {
   const date = new Date(build.created_at);
   document.getElementById('resultDate').textContent = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-  document.getElementById('resultLink').href = `https://stadiumbuilds.io/build/${build.id}`;
+  document.getElementById('resultLink').href = `https://stadiumbuilds.io/build/${encodeURIComponent(build.id)}`;
   document.getElementById('resultRandomTag').textContent = `Randomly picked from ${total} build${total !== 1 ? 's' : ''}`;
 
   // Likes and views
@@ -1678,7 +1695,7 @@ for (let i = 1; i <= 10; i++) {
   const row = document.createElement('div');
   row.className = 'create-player-row';
   row.innerHTML = `
-    <input class="create-name-input" placeholder="Player ${i}" data-slot="${i}">
+    <input class="create-name-input" placeholder="Player ${i}" data-slot="${i}" maxlength="24">
     <select class="create-role-select" data-slot="${i}">
       <option value="">Any role</option>
       <option value="Tank">🛡 Tank</option>
@@ -1750,12 +1767,39 @@ document.getElementById('copyHostLinkBtn').addEventListener('click', () => {
   });
 });
 
+// Cryptographically random, not Math.random() - this token is the only thing
+// standing between "anyone with the code" and "can edit the roster", so it
+// needs real entropy, not a PRNG that's only good enough for game shuffles.
 function genToken() {
-  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+async function sha256Hex(str) {
+  const enc = new TextEncoder().encode(str);
+  const buf = await crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// The raw host token never goes out over the Realtime channel - only its
+// hash does. Every player in a lobby receives every broadcast (there's no
+// per-recipient targeting on a public channel), so broadcasting the actual
+// token would let anyone in the lobby read it out of the network traffic and
+// promote themselves to host. Only a client that already holds the raw token
+// (the creator, or someone who received the Host Link out of band) can ever
+// prove a match against the synced hash.
+// amIHost() itself stays a cheap synchronous read so none of its many call
+// sites need to change - the async hash comparison happens in the background
+// via refreshHostStatus() and just updates the cached lobby.iAmHost flag.
 function amIHost() {
-  return !!(lobby && lobby.hostToken && localStorage.getItem('lobby_host_' + lobby.code) === lobby.hostToken);
+  return !!(lobby && lobby.iAmHost);
+}
+
+async function refreshHostStatus() {
+  if (!lobby) return;
+  const myToken = localStorage.getItem('lobby_host_' + lobby.code);
+  if (!myToken || !lobby.hostTokenHash) { lobby.iAmHost = false; return; }
+  lobby.iAmHost = (await sha256Hex(myToken)) === lobby.hostTokenHash;
 }
 
 function assignRolesWithPreferences(players) {
@@ -1857,7 +1901,7 @@ async function createLobby() {
   const rows = Array.from(createNameInputs.querySelectorAll('.create-player-row'));
   const entries = rows.map(row => {
     const slot = row.querySelector('.create-name-input').dataset.slot;
-    const name = row.querySelector('.create-name-input').value.trim();
+    const name = row.querySelector('.create-name-input').value.trim().slice(0, 24);
     const role = row.querySelector('.create-role-select').value || null;
     const pairRaw = row.querySelector('.create-pair-select').value;
     let pair = null;
@@ -1936,7 +1980,9 @@ async function enterLobby(code, initialPlayers, hostToken) {
     myPlayerName: localStorage.getItem('lobby_me_name_' + code) || null,
     channel: null,
     haveState: !!initialPlayers,
-    hostToken: hostToken || null,
+    hostToken: hostToken || localStorage.getItem('lobby_host_' + code) || null,
+    hostTokenHash: null,
+    iAmHost: !!hostToken,
     pendingSwap: null,
     reconnecting: false,
     reconnectAttempts: 0
@@ -1944,6 +1990,7 @@ async function enterLobby(code, initialPlayers, hostToken) {
 
   if (hostToken) {
     localStorage.setItem('lobby_host_' + code, hostToken);
+    lobby.hostTokenHash = await sha256Hex(hostToken);
   }
 
   setupLobbyChannel();
@@ -1960,14 +2007,19 @@ function setupLobbyChannel() {
   const channel = supa.channel('lobby-' + code, { config: { broadcast: { self: false } } });
   lobby.channel = channel;
 
-  channel.on('broadcast', { event: 'state_sync' }, ({ payload }) => {
+  channel.on('broadcast', { event: 'state_sync' }, async ({ payload }) => {
     lobby.players = payload.players;
-    lobby.hostToken = payload.hostToken || lobby.hostToken;
+    lobby.hostTokenHash = payload.hostTokenHash || lobby.hostTokenHash;
     lobby.pendingSwap = payload.pendingSwap || null;
     lobby.haveState = true;
-    if (claimToken && lobby.hostToken && claimToken === lobby.hostToken) {
-      localStorage.setItem('lobby_host_' + code, lobby.hostToken);
+    if (claimToken && !lobby.iAmHost) {
+      const claimHash = await sha256Hex(claimToken);
+      if (claimHash === lobby.hostTokenHash) {
+        lobby.hostToken = claimToken;
+        localStorage.setItem('lobby_host_' + code, claimToken);
+      }
     }
+    await refreshHostStatus();
     const joinStatusEl = document.getElementById('joinStatus');
     if (joinStatusEl) joinStatusEl.textContent = '';
     renderLobbyRoom();
@@ -1975,7 +2027,7 @@ function setupLobbyChannel() {
 
   channel.on('broadcast', { event: 'state_request' }, () => {
     if (lobby.haveState) {
-      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
+      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap } });
     }
   });
 
@@ -1986,7 +2038,7 @@ function setupLobbyChannel() {
       lobby.reconnectAttempts = 0;
 
       if (lobby.haveState) {
-        channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
+        channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap } });
         showLobbyRoom();
       } else {
         showLobbyRoom();
@@ -2060,7 +2112,7 @@ function leaveLobby() {
 
 function broadcastState() {
   if (!lobby || !lobby.channel) return;
-  lobby.channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
+  lobby.channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap } });
 }
 
 function syncMyIdentity() {
@@ -2211,7 +2263,7 @@ function teamControlsHtml(group, isHost) {
 
     html += swapHtml + `
       <div class="add-player-row">
-        <input class="add-player-input" placeholder="Add player name">
+        <input class="add-player-input" placeholder="Add player name" maxlength="24">
         <button type="button" class="btn-small add-player-btn">+ Add</button>
       </div>`;
   }
@@ -2312,7 +2364,7 @@ function addPlayerToTeam(team, containerId) {
   if (!amIHost()) return;
   const container = document.getElementById(containerId);
   const input = container.querySelector('.add-player-input');
-  const name = input.value.trim();
+  const name = input.value.trim().slice(0, 24);
   const statusEl = document.getElementById('roomStatus');
   if (!name) return;
   if (lobby.players.some(p => p.name.toLowerCase() === name.toLowerCase())) {
@@ -2368,7 +2420,7 @@ function commitRenamePlayer(id, rawValue) {
   if (!amIHost()) { renderLobbyRoom(); return; }
   const player = lobby.players.find(p => p.id === id);
   if (!player) return;
-  const trimmed = (rawValue || '').trim();
+  const trimmed = (rawValue || '').trim().slice(0, 24);
   const statusEl = document.getElementById('roomStatus');
   if (!trimmed || trimmed === player.name) {
     renderLobbyRoom();
@@ -2426,7 +2478,7 @@ function playerRowHtml(p, isHost) {
     rightSide = `
       <div class="player-hero-name">${safeHeroName}</div>
       <div class="player-build-title" title="${safeBuildTitle}">${safeBuildTitle}</div>`;
-    actionBtns.push(`<a class="btn-small" href="https://stadiumbuilds.io/build/${p.build.id}" target="_blank" rel="noopener">Open ↗</a>`);
+    actionBtns.push(`<a class="btn-small" href="https://stadiumbuilds.io/build/${encodeURIComponent(p.build.id)}" target="_blank" rel="noopener">Open ↗</a>`);
     if (isMe) actionBtns.push(`<button type="button" class="btn-small btn-reroll-slot" data-pid="${p.id}" aria-label="Reroll ${escapeHtml(p.role || '')}">🎲 Reroll</button>`);
   } else if (isMe) {
     avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
@@ -2439,7 +2491,7 @@ function playerRowHtml(p, isHost) {
 
   const safeName = escapeHtml(p.name);
   const nameHtml = renamingPlayerId === p.id
-    ? `<input class="rename-input" data-pid="${p.id}" value="${safeName}" aria-label="Rename player" style="width:90px;padding:2px 6px;border-radius:6px;border:1px solid #7c3aed;background:#0b0f1a;color:#e2e8f0;font-size:0.82rem;">`
+    ? `<input class="rename-input" data-pid="${p.id}" value="${safeName}" maxlength="24" aria-label="Rename player" style="width:90px;padding:2px 6px;border-radius:6px;border:1px solid #7c3aed;background:#0b0f1a;color:#e2e8f0;font-size:0.82rem;">`
     : `${safeName} ${isMe ? '<span class="me-tag">YOU</span>' : ''}
         ${isHost ? `<button type="button" class="icon-btn rename-btn" data-pid="${p.id}" title="Rename ${safeName}" aria-label="Rename ${safeName}">✎</button>` : ''}`;
 
