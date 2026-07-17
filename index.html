@@ -631,7 +631,10 @@
     gap: 8px;
     margin-bottom: 18px;
   }
-  .name-inputs input {
+  .create-player-row { display: flex; gap: 6px; }
+  .create-player-row input {
+    flex: 1;
+    min-width: 0;
     padding: 8px 12px;
     border-radius: 8px;
     border: 1px solid #1e293b;
@@ -640,7 +643,19 @@
     font-size: 0.83rem;
     outline: none;
   }
-  .name-inputs input:focus { border-color: #334155; }
+  .create-player-row input:focus { border-color: #334155; }
+  .create-player-row select {
+    width: 96px;
+    flex-shrink: 0;
+    padding: 8px 6px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: #0b0f1a;
+    color: #94a3b8;
+    font-size: 0.74rem;
+    outline: none;
+  }
+  .create-player-row select:focus { border-color: #334155; }
 
   .join-code-input {
     width: 100%;
@@ -1098,7 +1113,7 @@
     <div class="lobby-home">
       <div class="lobby-card">
         <h3>Create a Lobby</h3>
-        <p class="hint">Enter up to 10 player names. Teams are shuffled automatically into Team A / Team B, with a locked 1 Tank / 2 Damage / 2 Support comp per team. Swap roles between players any time, and reshuffle teams for a new game without retyping names. No two players on the same team will get the same hero.</p>
+        <p class="hint">Enter up to 10 player names. Optionally pick a role for anyone who wants a specific one - leave it on "Any role" to let the shuffle decide. Teams are shuffled automatically into Team A / Team B, with a locked 1 Tank / 2 Damage / 2 Support comp per team. Swap roles between players any time, and reshuffle teams for a new game without retyping names. No two players on the same team will get the same hero.</p>
         <div class="name-inputs" id="createNameInputs"></div>
         <button class="btn-lobby-primary" id="createLobbyBtn">🎲 Build Teams &amp; Create Lobby</button>
         <div class="lobby-status" id="createStatus"></div>
@@ -1526,13 +1541,20 @@ document.querySelectorAll('.mode-tab').forEach(tab => {
   });
 });
 
-// ---- Create-lobby name inputs (up to 10) ----
+// ---- Create-lobby name + role inputs (up to 10) ----
 const createNameInputs = document.getElementById('createNameInputs');
 for (let i = 1; i <= 10; i++) {
-  const input = document.createElement('input');
-  input.placeholder = `Player ${i}`;
-  input.dataset.slot = String(i);
-  createNameInputs.appendChild(input);
+  const row = document.createElement('div');
+  row.className = 'create-player-row';
+  row.innerHTML = `
+    <input class="create-name-input" placeholder="Player ${i}" data-slot="${i}">
+    <select class="create-role-select" data-slot="${i}">
+      <option value="">Any role</option>
+      <option value="Tank">🛡 Tank</option>
+      <option value="Damage">⚔️ Damage</option>
+      <option value="Support">💚 Support</option>
+    </select>`;
+  createNameInputs.appendChild(row);
 }
 
 document.getElementById('createLobbyBtn').addEventListener('click', createLobby);
@@ -1572,32 +1594,68 @@ function amIHost() {
   return !!(lobby && lobby.hostToken && localStorage.getItem('lobby_host_' + lobby.code) === lobby.hostToken);
 }
 
+function assignRolesWithPreferences(players) {
+  let conflicts = 0;
+  ['A', 'B'].forEach(team => {
+    const group = players.filter(p => p.team === team);
+    const targets = { Tank: 1, Damage: 2, Support: 2 };
+    const counts = { Tank: 0, Damage: 0, Support: 0 };
+    const leftover = [];
+
+    // Pass 1: honor explicit role requests in shuffle order, first-come-first-served per slot.
+    group.forEach(p => {
+      const want = p.desiredRole;
+      if (want && counts[want] < targets[want]) {
+        p.role = want;
+        counts[want]++;
+      } else {
+        if (want) conflicts++;
+        leftover.push(p);
+      }
+    });
+
+    // Pass 2: fill remaining slots for everyone else (no request, or request unavailable).
+    leftover.forEach(p => {
+      const role = ['Tank', 'Damage', 'Support'].find(r => counts[r] < targets[r]) || 'Support';
+      p.role = role;
+      counts[role]++;
+    });
+
+    group.forEach(p => { delete p.desiredRole; });
+  });
+  return conflicts;
+}
+
 async function createLobby() {
-  const inputs = Array.from(createNameInputs.querySelectorAll('input'));
-  const names = inputs.map(i => i.value.trim()).filter(Boolean);
+  const rows = Array.from(createNameInputs.querySelectorAll('.create-player-row'));
+  const entries = rows.map(row => ({
+    name: row.querySelector('.create-name-input').value.trim(),
+    role: row.querySelector('.create-role-select').value || null
+  })).filter(e => e.name);
   const statusEl = document.getElementById('createStatus');
 
-  if (names.length < 2) {
+  if (entries.length < 2) {
     statusEl.textContent = 'Enter at least 2 player names.';
     statusEl.className = 'lobby-status error';
     return;
   }
-  if (new Set(names.map(n => n.toLowerCase())).size !== names.length) {
+  if (new Set(entries.map(e => e.name.toLowerCase())).size !== entries.length) {
     statusEl.textContent = 'Player names must be unique.';
     statusEl.className = 'lobby-status error';
     return;
   }
 
-  const shuffled = shuffleArr(names);
+  const shuffled = shuffleArr(entries);
   const mid = Math.ceil(shuffled.length / 2);
-  const players = shuffled.map((name, idx) => ({
+  const players = shuffled.map((e, idx) => ({
     id: 'p' + idx + '_' + Math.random().toString(36).slice(2, 6),
-    name,
+    name: e.name,
     team: idx < mid ? 'A' : 'B',
     role: null,
+    desiredRole: e.role,
     heroId: null, heroName: null, heroRole: null, build: null
   }));
-  assignRolesInPlace(players);
+  const conflicts = assignRolesWithPreferences(players);
 
   const code = genLobbyCode();
   const hostToken = genToken();
@@ -1606,6 +1664,11 @@ async function createLobby() {
 
   await enterLobby(code, players, hostToken);
   statusEl.textContent = '';
+  if (conflicts > 0) {
+    const roomStatusEl = document.getElementById('roomStatus');
+    roomStatusEl.textContent = `${conflicts} role request${conflicts > 1 ? 's' : ''} couldn't be honored because of team role limits, so ${conflicts > 1 ? 'those players' : 'that player'} got a different role instead.`;
+    roomStatusEl.className = 'lobby-status';
+  }
 }
 
 async function joinLobby(code) {
