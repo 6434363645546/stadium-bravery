@@ -1186,6 +1186,13 @@ const SUPA_URL = 'https://qkdvetofbsoynkfprlos.supabase.co';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZHZldG9mYnNveW5rZnBybG9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU3Mjc0NDEsImV4cCI6MjA2MTMwMzQ0MX0.Moy2MzlEQ0w1cqvnMs3qAV6Mzdm8R1v_YSo7Zw93mG8';
 const HEADERS = { 'apikey': ANON_KEY, 'Authorization': 'Bearer ' + ANON_KEY, 'Content-Type': 'application/json' };
 
+// Builds with fewer than this many final-round powers are considered too
+// incomplete to roll and get filtered out before a random pick is made.
+const MIN_BUILD_POWERS = 4;
+function hasEnoughPowers(build) {
+  return Array.isArray(build.final_round_powers) && build.final_round_powers.length >= MIN_BUILD_POWERS;
+}
+
 let allHeroes = [];
 let selectedHeroIds = new Set();
 let activeRole = 'All';
@@ -1403,6 +1410,11 @@ async function rollBuild() {
 
     if (!Array.isArray(builds) || builds.length === 0) {
       throw new Error('No builds found for the selected hero' + (selectedHeroIds.size > 1 ? 'es' : '') + '.');
+    }
+
+    builds = builds.filter(hasEnoughPowers);
+    if (builds.length === 0) {
+      throw new Error(`No builds with at least ${MIN_BUILD_POWERS} powers found for the selected hero` + (selectedHeroIds.size > 1 ? 'es' : '') + '.');
     }
 
     if (daysFilter > 0) {
@@ -2328,6 +2340,13 @@ async function rollForPlayer(playerId) {
   }
   if (!Array.isArray(builds) || builds.length === 0) {
     statusEl.textContent = `No builds found for ${hero.name}. Try again.`;
+    statusEl.className = 'lobby-status error';
+    renderLobbyRoom();
+    return;
+  }
+  builds = builds.filter(hasEnoughPowers);
+  if (builds.length === 0) {
+    statusEl.textContent = `No builds with at least ${MIN_BUILD_POWERS} powers found for ${hero.name}. Try again.`;
     statusEl.className = 'lobby-status error';
     renderLobbyRoom();
     return;
