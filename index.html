@@ -626,15 +626,15 @@
     line-height: 1.5;
   }
   .name-inputs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
     margin-bottom: 18px;
   }
-  .create-player-row { display: flex; gap: 6px; }
+  .create-player-row { display: flex; gap: 6px; flex-wrap: wrap; }
   .create-player-row input {
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 100px;
+    min-width: 80px;
     padding: 8px 12px;
     border-radius: 8px;
     border: 1px solid #1e293b;
@@ -645,8 +645,6 @@
   }
   .create-player-row input:focus { border-color: #334155; }
   .create-player-row select {
-    width: 96px;
-    flex-shrink: 0;
     padding: 8px 6px;
     border-radius: 8px;
     border: 1px solid #1e293b;
@@ -655,6 +653,8 @@
     font-size: 0.74rem;
     outline: none;
   }
+  .create-player-row .create-role-select { width: 92px; flex-shrink: 0; }
+  .create-player-row .create-pair-select { flex: 1 1 130px; min-width: 112px; }
   .create-player-row select:focus { border-color: #334155; }
 
   .join-code-input {
@@ -1113,7 +1113,7 @@
     <div class="lobby-home">
       <div class="lobby-card">
         <h3>Create a Lobby</h3>
-        <p class="hint">Enter up to 10 player names. Optionally pick a role for anyone who wants a specific one - leave it on "Any role" to let the shuffle decide. Teams are shuffled automatically into Team A / Team B, with a locked 1 Tank / 2 Damage / 2 Support comp per team. Swap roles between players any time, and reshuffle teams for a new game without retyping names. No two players on the same team will get the same hero.</p>
+        <p class="hint">Enter up to 10 player names. Optionally pick a role for anyone who wants a specific one, and use "Keep with / apart" to group friends together or split up rivals - leave either on its default to let the shuffle decide. Teams are shuffled automatically into Team A / Team B, with a locked 1 Tank / 2 Damage / 2 Support comp per team. Swap roles between players any time, and reshuffle teams for a new game without retyping names. No two players on the same team will get the same hero.</p>
         <div class="name-inputs" id="createNameInputs"></div>
         <button class="btn-lobby-primary" id="createLobbyBtn">🎲 Build Teams &amp; Create Lobby</button>
         <div class="lobby-status" id="createStatus"></div>
@@ -1541,7 +1541,7 @@ document.querySelectorAll('.mode-tab').forEach(tab => {
   });
 });
 
-// ---- Create-lobby name + role inputs (up to 10) ----
+// ---- Create-lobby name + role + team-pairing inputs (up to 10) ----
 const createNameInputs = document.getElementById('createNameInputs');
 for (let i = 1; i <= 10; i++) {
   const row = document.createElement('div');
@@ -1553,9 +1553,42 @@ for (let i = 1; i <= 10; i++) {
       <option value="Tank">🛡 Tank</option>
       <option value="Damage">⚔️ Damage</option>
       <option value="Support">💚 Support</option>
+    </select>
+    <select class="create-pair-select" data-slot="${i}">
+      <option value="">No team preference</option>
     </select>`;
   createNameInputs.appendChild(row);
 }
+
+function refreshPairDropdowns() {
+  const rows = Array.from(createNameInputs.querySelectorAll('.create-player-row'));
+  const labels = rows.map(row => {
+    const slot = row.querySelector('.create-name-input').dataset.slot;
+    const name = row.querySelector('.create-name-input').value.trim();
+    return { slot, label: name || `Player ${slot}` };
+  });
+  rows.forEach(row => {
+    const mySlot = row.querySelector('.create-name-input').dataset.slot;
+    const pairSelect = row.querySelector('.create-pair-select');
+    const prevValue = pairSelect.value;
+    const others = labels.filter(l => l.slot !== mySlot);
+    let html = '<option value="">No team preference</option>';
+    if (others.length) {
+      html += '<optgroup label="Keep with">' +
+        others.map(o => `<option value="with:${o.slot}">${o.label}</option>`).join('') +
+        '</optgroup>';
+      html += '<optgroup label="Keep apart">' +
+        others.map(o => `<option value="against:${o.slot}">${o.label}</option>`).join('') +
+        '</optgroup>';
+    }
+    pairSelect.innerHTML = html;
+    pairSelect.value = prevValue;
+  });
+}
+refreshPairDropdowns();
+createNameInputs.addEventListener('input', e => {
+  if (e.target.classList.contains('create-name-input')) refreshPairDropdowns();
+});
 
 document.getElementById('createLobbyBtn').addEventListener('click', createLobby);
 document.getElementById('joinLobbyBtn').addEventListener('click', () => {
@@ -1626,12 +1659,83 @@ function assignRolesWithPreferences(players) {
   return conflicts;
 }
 
+// Builds a team assignment (slot -> 'A'|'B') that honors "keep with" / "keep apart"
+// requests as best it can. "With" requests are merged into groups via union-find so
+// the whole group moves together; "against" requests force a group onto the opposite
+// team from whichever group it conflicts with once that group has been placed.
+// Returns { teamOf, conflictCount } - conflictCount is how many requests couldn't be
+// fully honored (contradictory requests, or capacity ran out).
+function buildTeamAssignments(entries) {
+  const bySlot = {};
+  entries.forEach(e => { bySlot[e.slot] = e; });
+
+  const parent = {};
+  entries.forEach(e => { parent[e.slot] = e.slot; });
+  function find(x) { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+  function union(a, b) { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; }
+
+  entries.forEach(e => {
+    if (e.pair && e.pair.mode === 'with' && bySlot[e.pair.slot]) union(e.slot, e.pair.slot);
+  });
+
+  const groupsMap = {};
+  entries.forEach(e => {
+    const root = find(e.slot);
+    (groupsMap[root] = groupsMap[root] || []).push(e);
+  });
+  let groups = Object.values(groupsMap);
+
+  let conflictCount = 0;
+  const againstPairs = [];
+  entries.forEach(e => {
+    if (e.pair && e.pair.mode === 'against' && bySlot[e.pair.slot]) {
+      const rA = find(e.slot), rB = find(e.pair.slot);
+      if (rA === rB) conflictCount++; // asked to be with AND apart from the same group - "with" wins
+      else againstPairs.push([rA, rB]);
+    }
+  });
+
+  groups = shuffleArr(groups);
+  const groupTeam = {};
+  let countA = 0, countB = 0;
+  const total = entries.length;
+  const targetA = Math.ceil(total / 2);
+
+  groups.forEach(group => {
+    const root = find(group[0].slot);
+    let forced = null;
+    againstPairs.forEach(([a, b]) => {
+      if (a === root && groupTeam[b]) forced = groupTeam[b] === 'A' ? 'B' : 'A';
+      if (b === root && groupTeam[a]) forced = groupTeam[a] === 'A' ? 'B' : 'A';
+    });
+    const team = forced || (countA < targetA ? 'A' : (countB < total - targetA ? 'B' : (countA <= countB ? 'A' : 'B')));
+    groupTeam[root] = team;
+    if (team === 'A') countA += group.length; else countB += group.length;
+  });
+
+  againstPairs.forEach(([a, b]) => {
+    if (groupTeam[a] && groupTeam[b] && groupTeam[a] === groupTeam[b]) conflictCount++;
+  });
+
+  const teamOf = {};
+  entries.forEach(e => { teamOf[e.slot] = groupTeam[find(e.slot)]; });
+  return { teamOf, conflictCount };
+}
+
 async function createLobby() {
   const rows = Array.from(createNameInputs.querySelectorAll('.create-player-row'));
-  const entries = rows.map(row => ({
-    name: row.querySelector('.create-name-input').value.trim(),
-    role: row.querySelector('.create-role-select').value || null
-  })).filter(e => e.name);
+  const entries = rows.map(row => {
+    const slot = row.querySelector('.create-name-input').dataset.slot;
+    const name = row.querySelector('.create-name-input').value.trim();
+    const role = row.querySelector('.create-role-select').value || null;
+    const pairRaw = row.querySelector('.create-pair-select').value;
+    let pair = null;
+    if (pairRaw) {
+      const [mode, otherSlot] = pairRaw.split(':');
+      pair = { mode, slot: otherSlot };
+    }
+    return { slot, name, role, pair };
+  }).filter(e => e.name);
   const statusEl = document.getElementById('createStatus');
 
   if (entries.length < 2) {
@@ -1645,17 +1749,24 @@ async function createLobby() {
     return;
   }
 
+  // Drop pair references that point at a row that ended up blank.
+  const filledSlots = new Set(entries.map(e => e.slot));
+  entries.forEach(e => {
+    if (e.pair && !filledSlots.has(e.pair.slot)) e.pair = null;
+  });
+
+  const { teamOf, conflictCount: teamConflicts } = buildTeamAssignments(entries);
+
   const shuffled = shuffleArr(entries);
-  const mid = Math.ceil(shuffled.length / 2);
   const players = shuffled.map((e, idx) => ({
     id: 'p' + idx + '_' + Math.random().toString(36).slice(2, 6),
     name: e.name,
-    team: idx < mid ? 'A' : 'B',
+    team: teamOf[e.slot],
     role: null,
     desiredRole: e.role,
     heroId: null, heroName: null, heroRole: null, build: null
   }));
-  const conflicts = assignRolesWithPreferences(players);
+  const roleConflicts = assignRolesWithPreferences(players);
 
   const code = genLobbyCode();
   const hostToken = genToken();
@@ -1664,9 +1775,13 @@ async function createLobby() {
 
   await enterLobby(code, players, hostToken);
   statusEl.textContent = '';
-  if (conflicts > 0) {
+
+  const notes = [];
+  if (teamConflicts > 0) notes.push(`${teamConflicts} team request${teamConflicts > 1 ? 's' : ''} couldn't be fully honored.`);
+  if (roleConflicts > 0) notes.push(`${roleConflicts} role request${roleConflicts > 1 ? 's' : ''} got reassigned because of team role limits.`);
+  if (notes.length) {
     const roomStatusEl = document.getElementById('roomStatus');
-    roomStatusEl.textContent = `${conflicts} role request${conflicts > 1 ? 's' : ''} couldn't be honored because of team role limits, so ${conflicts > 1 ? 'those players' : 'that player'} got a different role instead.`;
+    roomStatusEl.textContent = notes.join(' ');
     roomStatusEl.className = 'lobby-status';
   }
 }
