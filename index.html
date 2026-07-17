@@ -2184,8 +2184,10 @@ function renderTeamColumn(team, containerId, isHost) {
     input.focus();
     input.select();
   });
-  const swapBtn = container.querySelector('.swap-btn');
-  if (swapBtn) swapBtn.addEventListener('click', () => swapRoles(containerId, isHost));
+  const hostSwapBtn = container.querySelector('.host-swap-btn');
+  if (hostSwapBtn) hostSwapBtn.addEventListener('click', () => performHostSwap(containerId));
+  const requestSwapBtn = container.querySelector('.request-swap-btn');
+  if (requestSwapBtn) requestSwapBtn.addEventListener('click', () => requestOwnSwap(containerId));
   const addBtn = container.querySelector('.add-player-btn');
   if (addBtn) addBtn.addEventListener('click', () => addPlayerToTeam(team, containerId));
   const addInput = container.querySelector('.add-player-input');
@@ -2195,65 +2197,74 @@ function renderTeamColumn(team, containerId, isHost) {
 }
 
 function teamControlsHtml(group, isHost) {
+  let html = '';
+
   if (isHost) {
     const options = group.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.role || '?'})</option>`).join('');
     const swapHtml = group.length >= 2 ? `
       <div class="swap-row">
-        <select class="swap-select-a">${options}</select>
+        <select class="host-swap-select-a">${options}</select>
         <span class="swap-arrow">⇄</span>
-        <select class="swap-select-b">${options}</select>
-        <button class="btn-small swap-btn">Swap Roles</button>
+        <select class="host-swap-select-b">${options}</select>
+        <button type="button" class="btn-small host-swap-btn">Swap Roles</button>
       </div>` : '';
 
-    return swapHtml + `
+    html += swapHtml + `
       <div class="add-player-row">
         <input class="add-player-input" placeholder="Add player name">
-        <button class="btn-small add-player-btn">+ Add</button>
+        <button type="button" class="btn-small add-player-btn">+ Add</button>
       </div>`;
   }
 
-  // Non-host: only let a player on this team request a swap with a teammate.
+  // Whoever is actually playing on this team - host included - can request a
+  // swap with a teammate that the other person has to accept. This is
+  // separate from the host's instant override above.
   const me = group.find(p => p.id === lobby.myPlayerId);
-  if (!me || group.length < 2 || lobby.pendingSwap) return '';
-  const others = group.filter(p => p.id !== me.id);
-  const options = others.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.role || '?'})</option>`).join('');
-  return `
-    <div class="swap-row">
-      <span style="font-size:0.72rem;color:#475569;">Swap my role with:</span>
-      <select class="swap-select-b">${options}</select>
-      <button class="btn-small swap-btn">Request Swap</button>
-    </div>`;
+  if (me && group.length >= 2 && !lobby.pendingSwap) {
+    const others = group.filter(p => p.id !== me.id);
+    const options = others.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.role || '?'})</option>`).join('');
+    html += `
+      <div class="swap-row">
+        <span style="font-size:0.72rem;color:#475569;">Swap my role with:</span>
+        <select class="request-swap-select">${options}</select>
+        <button type="button" class="btn-small request-swap-btn">Request Swap</button>
+      </div>`;
+  }
+
+  return html;
 }
 
-function swapRoles(containerId, isHost) {
+function performHostSwap(containerId) {
+  if (!amIHost()) return;
   const container = document.getElementById(containerId);
-  if (isHost && amIHost()) {
-    const selA = container.querySelector('.swap-select-a');
-    const selB = container.querySelector('.swap-select-b');
-    if (!selA || !selB) return;
-    const idA = selA.value, idB = selB.value;
-    if (!idA || !idB || idA === idB) return;
-    const pA = lobby.players.find(p => p.id === idA);
-    const pB = lobby.players.find(p => p.id === idB);
-    const nameA = pA ? pA.name : '';
-    const nameB = pB ? pB.name : '';
-    const roleA = pA ? pA.role : '';
-    const roleB = pB ? pB.role : '';
-    executeSwap(idA, idB);
-    lobby.pendingSwap = null;
-    const statusEl = document.getElementById('roomStatus');
-    statusEl.textContent = `Host swapped roles: ${nameA} is now ${roleB}, ${nameB} is now ${roleA}.`;
-    statusEl.className = 'lobby-status ok';
-    renderLobbyRoom();
-    broadcastState();
-  } else {
-    if (lobby.pendingSwap) return;
-    const selB = container.querySelector('.swap-select-b');
-    if (!selB || !selB.value || !lobby.myPlayerId) return;
-    lobby.pendingSwap = { a: lobby.myPlayerId, b: selB.value };
-    renderLobbyRoom();
-    broadcastState();
-  }
+  const selA = container.querySelector('.host-swap-select-a');
+  const selB = container.querySelector('.host-swap-select-b');
+  if (!selA || !selB) return;
+  const idA = selA.value, idB = selB.value;
+  if (!idA || !idB || idA === idB) return;
+  const pA = lobby.players.find(p => p.id === idA);
+  const pB = lobby.players.find(p => p.id === idB);
+  const nameA = pA ? pA.name : '';
+  const nameB = pB ? pB.name : '';
+  const roleA = pA ? pA.role : '';
+  const roleB = pB ? pB.role : '';
+  executeSwap(idA, idB);
+  lobby.pendingSwap = null;
+  const statusEl = document.getElementById('roomStatus');
+  statusEl.textContent = `Host swapped roles: ${nameA} is now ${roleB}, ${nameB} is now ${roleA}.`;
+  statusEl.className = 'lobby-status ok';
+  renderLobbyRoom();
+  broadcastState();
+}
+
+function requestOwnSwap(containerId) {
+  if (lobby.pendingSwap) return;
+  const container = document.getElementById(containerId);
+  const selB = container.querySelector('.request-swap-select');
+  if (!selB || !selB.value || !lobby.myPlayerId) return;
+  lobby.pendingSwap = { a: lobby.myPlayerId, b: selB.value };
+  renderLobbyRoom();
+  broadcastState();
 }
 
 function executeSwap(idA, idB) {
@@ -2419,7 +2430,8 @@ function playerRowHtml(p, isHost) {
     if (isMe) actionBtns.push(`<button type="button" class="btn-small btn-reroll-slot" data-pid="${p.id}" aria-label="Reroll ${escapeHtml(p.role || '')}">🎲 Reroll</button>`);
   } else if (isMe) {
     avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
-    rightSide = `<button type="button" class="btn-roll-slot" data-pid="${p.id}">🎲 Roll ${p.role || ''}</button>`;
+    rightSide = '';
+    actionBtns.push(`<button type="button" class="btn-roll-slot" data-pid="${p.id}">🎲 Roll ${escapeHtml(p.role || '')}</button>`);
   } else {
     avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
     rightSide = `<div class="player-hero-name" style="color:#334155;">Waiting to roll…</div>`;
