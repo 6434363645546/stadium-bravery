@@ -1636,10 +1636,19 @@ function renderTeamColumn(team, containerId) {
     btn.addEventListener('click', () => rollForPlayer(btn.dataset.pid));
   });
   container.querySelectorAll('.rename-btn').forEach(btn => {
-    btn.addEventListener('click', () => renamePlayer(btn.dataset.pid));
+    btn.addEventListener('click', () => startRenamePlayer(btn.dataset.pid));
   });
   container.querySelectorAll('.remove-btn').forEach(btn => {
     btn.addEventListener('click', () => removePlayer(btn.dataset.pid));
+  });
+  container.querySelectorAll('.rename-input').forEach(input => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); commitRenamePlayer(input.dataset.pid, input.value); }
+      if (e.key === 'Escape') { e.preventDefault(); renamingPlayerId = null; renderLobbyRoom(); }
+    });
+    input.addEventListener('blur', () => commitRenamePlayer(input.dataset.pid, input.value));
+    input.focus();
+    input.select();
   });
   const swapBtn = container.querySelector('.swap-btn');
   if (swapBtn) swapBtn.addEventListener('click', () => swapRoles(containerId));
@@ -1715,28 +1724,42 @@ function addPlayerToTeam(team, containerId) {
   broadcastState();
 }
 
+let renamingPlayerId = null;
+
 function removePlayer(id) {
   const player = lobby.players.find(p => p.id === id);
   if (!player) return;
-  if (!confirm(`Remove ${player.name} from the lobby?`)) return;
   lobby.players = lobby.players.filter(p => p.id !== id);
   if (lobby.myPlayerId === id) {
     lobby.myPlayerId = null;
     localStorage.removeItem('lobby_me_' + lobby.code);
   }
+  const statusEl = document.getElementById('roomStatus');
+  statusEl.textContent = `Removed ${player.name} from the lobby.`;
+  statusEl.className = 'lobby-status ok';
   renderLobbyRoom();
   broadcastState();
 }
 
-function renamePlayer(id) {
+function startRenamePlayer(id) {
+  renamingPlayerId = id;
+  renderLobbyRoom();
+}
+
+function commitRenamePlayer(id, rawValue) {
+  renamingPlayerId = null;
   const player = lobby.players.find(p => p.id === id);
   if (!player) return;
-  const newName = prompt('Rename player', player.name);
-  if (newName === null) return;
-  const trimmed = newName.trim();
-  if (!trimmed) return;
+  const trimmed = (rawValue || '').trim();
+  const statusEl = document.getElementById('roomStatus');
+  if (!trimmed || trimmed === player.name) {
+    renderLobbyRoom();
+    return;
+  }
   if (lobby.players.some(p => p.id !== id && p.name.toLowerCase() === trimmed.toLowerCase())) {
-    alert('That name is already in the lobby.');
+    statusEl.textContent = 'That name is already in the lobby.';
+    statusEl.className = 'lobby-status error';
+    renderLobbyRoom();
     return;
   }
   player.name = trimmed;
@@ -1787,13 +1810,17 @@ function playerRowHtml(p) {
     if (isMe) actionBtns.push(`<button class="btn-small btn-reroll-slot" data-pid="${p.id}">🎲 Reroll</button>`);
   }
 
+  const nameHtml = renamingPlayerId === p.id
+    ? `<input class="rename-input" data-pid="${p.id}" value="${p.name.replace(/"/g, '&quot;')}" style="width:90px;padding:2px 6px;border-radius:6px;border:1px solid #7c3aed;background:#0b0f1a;color:#e2e8f0;font-size:0.82rem;">`
+    : `${p.name} ${isMe ? '<span class="me-tag">YOU</span>' : ''}
+        <button class="icon-btn rename-btn" data-pid="${p.id}" title="Rename">✎</button>`;
+
   return `<div class="player-row ${isMe ? 'is-me' : ''}">
     ${avatar}
     <div class="player-info">
       <div class="player-name">
         <span class="role-badge-fixed ${p.role}">${roleIcon} ${p.role || '?'}</span>
-        ${p.name} ${isMe ? '<span class="me-tag">YOU</span>' : ''}
-        <button class="icon-btn rename-btn" data-pid="${p.id}" title="Rename">✎</button>
+        ${nameHtml}
         <button class="icon-btn remove-btn" data-pid="${p.id}" title="Remove">✕</button>
       </div>
       ${rightSide}
