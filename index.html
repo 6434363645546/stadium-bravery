@@ -1589,6 +1589,7 @@ async function enterLobby(code, initialPlayers, hostToken) {
     code,
     players: initialPlayers || [],
     myPlayerId: localStorage.getItem('lobby_me_' + code) || null,
+    myPlayerName: localStorage.getItem('lobby_me_name_' + code) || null,
     channel: null,
     haveState: !!initialPlayers,
     hostToken: hostToken || null,
@@ -1662,8 +1663,39 @@ function broadcastState() {
   lobby.channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
 }
 
+function syncMyIdentity() {
+  if (!lobby) return;
+  if (!lobby.myPlayerId && !lobby.myPlayerName) return;
+  const atId = lobby.players.find(p => p.id === lobby.myPlayerId);
+  if (atId && atId.name === lobby.myPlayerName) return; // steady state, nothing moved
+
+  if (lobby.myPlayerName) {
+    const byName = lobby.players.find(p => p.name === lobby.myPlayerName);
+    if (byName) {
+      // My name moved to a different slot (a swap happened) - follow it.
+      lobby.myPlayerId = byName.id;
+      localStorage.setItem('lobby_me_' + lobby.code, lobby.myPlayerId);
+      return;
+    }
+  }
+
+  if (atId) {
+    // My slot still exists but the name changed (host renamed me) - adopt it.
+    lobby.myPlayerName = atId.name;
+    localStorage.setItem('lobby_me_name_' + lobby.code, lobby.myPlayerName);
+    return;
+  }
+
+  // My old slot is gone entirely (removed from the lobby).
+  lobby.myPlayerId = null;
+  lobby.myPlayerName = null;
+  localStorage.removeItem('lobby_me_' + lobby.code);
+  localStorage.removeItem('lobby_me_name_' + lobby.code);
+}
+
 function renderLobbyRoom() {
   if (!lobby) return;
+  syncMyIdentity();
   const isHost = amIHost();
 
   const select = document.getElementById('whoamiSelect');
@@ -1674,7 +1706,15 @@ function renderLobbyRoom() {
 
   select.onchange = () => {
     lobby.myPlayerId = select.value || null;
-    if (lobby.myPlayerId) localStorage.setItem('lobby_me_' + lobby.code, lobby.myPlayerId);
+    const chosen = lobby.players.find(p => p.id === lobby.myPlayerId);
+    lobby.myPlayerName = chosen ? chosen.name : null;
+    if (lobby.myPlayerId) {
+      localStorage.setItem('lobby_me_' + lobby.code, lobby.myPlayerId);
+      localStorage.setItem('lobby_me_name_' + lobby.code, lobby.myPlayerName);
+    } else {
+      localStorage.removeItem('lobby_me_' + lobby.code);
+      localStorage.removeItem('lobby_me_name_' + lobby.code);
+    }
     renderLobbyRoom();
   };
 
@@ -1698,7 +1738,7 @@ function renderPendingSwapBanner(isHost) {
   const isRequester = lobby.myPlayerId === ps.a;
 
   let actions = '';
-  if (isTarget || isHost) {
+  if (isTarget) {
     actions += `<button class="btn-small" id="acceptSwapBtn">✓ Accept</button>`;
     actions += `<button class="btn-small" id="declineSwapBtn">✕ Decline</button>`;
   } else if (isRequester) {
@@ -1793,10 +1833,16 @@ function swapRoles(containerId, isHost) {
     if (!selA || !selB) return;
     const idA = selA.value, idB = selB.value;
     if (!idA || !idB || idA === idB) return;
+    const pA = lobby.players.find(p => p.id === idA);
+    const pB = lobby.players.find(p => p.id === idB);
+    const nameA = pA ? pA.name : '';
+    const nameB = pB ? pB.name : '';
+    const roleA = pA ? pA.role : '';
+    const roleB = pB ? pB.role : '';
     executeSwap(idA, idB);
     lobby.pendingSwap = null;
     const statusEl = document.getElementById('roomStatus');
-    statusEl.textContent = 'Roles swapped by host.';
+    statusEl.textContent = `Host swapped roles: ${nameA} is now ${roleB}, ${nameB} is now ${roleA}.`;
     statusEl.className = 'lobby-status ok';
     renderLobbyRoom();
     broadcastState();
@@ -1811,23 +1857,31 @@ function swapRoles(containerId, isHost) {
 }
 
 function executeSwap(idA, idB) {
+  // Roles (and ids/team) stay fixed to their slot so each team's role order
+  // never scrambles - it's the player NAMES (and their in-progress hero/build)
+  // that move between the two slots.
   const pA = lobby.players.find(p => p.id === idA);
   const pB = lobby.players.find(p => p.id === idB);
   if (!pA || !pB) return;
-  const tmp = pA.role; pA.role = pB.role; pB.role = tmp;
+  const tmpName = pA.name; pA.name = pB.name; pB.name = tmpName;
   [pA, pB].forEach(p => { p.heroId = null; p.heroName = null; p.heroRole = null; p.build = null; });
 }
 
 function acceptSwap() {
   if (!lobby.pendingSwap) return;
+  if (lobby.myPlayerId !== lobby.pendingSwap.b) return; // only the target decides
   const { a, b } = lobby.pendingSwap;
   const pA = lobby.players.find(p => p.id === a);
   const pB = lobby.players.find(p => p.id === b);
+  const nameA = pA ? pA.name : '';
+  const nameB = pB ? pB.name : '';
+  const roleA = pA ? pA.role : '';
+  const roleB = pB ? pB.role : '';
   executeSwap(a, b);
   lobby.pendingSwap = null;
   const statusEl = document.getElementById('roomStatus');
   if (pA && pB) {
-    statusEl.textContent = `Swapped roles between ${pA.name} and ${pB.name}. Both need to reroll.`;
+    statusEl.textContent = `${nameA} is now ${roleB}, ${nameB} is now ${roleA}. Both need to reroll.`;
     statusEl.className = 'lobby-status ok';
   }
   renderLobbyRoom();
@@ -1835,6 +1889,9 @@ function acceptSwap() {
 }
 
 function declineSwap() {
+  if (!lobby.pendingSwap) return;
+  const { a, b } = lobby.pendingSwap;
+  if (lobby.myPlayerId !== a && lobby.myPlayerId !== b) return; // only requester or target
   lobby.pendingSwap = null;
   renderLobbyRoom();
   broadcastState();
@@ -1878,7 +1935,9 @@ function removePlayer(id) {
   lobby.players = lobby.players.filter(p => p.id !== id);
   if (lobby.myPlayerId === id) {
     lobby.myPlayerId = null;
+    lobby.myPlayerName = null;
     localStorage.removeItem('lobby_me_' + lobby.code);
+    localStorage.removeItem('lobby_me_name_' + lobby.code);
   }
   const statusEl = document.getElementById('roomStatus');
   statusEl.textContent = `Removed ${player.name} from the lobby.`;
