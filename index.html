@@ -1436,6 +1436,14 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') rulesModal.c
 
 const supa = window.supabase.createClient(SUPA_URL, ANON_KEY);
 
+const _origSetItem = localStorage.setItem.bind(localStorage);
+localStorage.setItem = function(key, value) {
+  if (key.indexOf('lobby_host_') === 0) {
+    console.log('[debug] setItem CALLED key=' + key + ' value=' + value + ' stack=' + (new Error().stack));
+  }
+  return _origSetItem(key, value);
+};
+
 let lobby = null; // { code, players, myPlayerId, channel, haveState }
 
 function genLobbyCode() {
@@ -1596,7 +1604,9 @@ async function enterLobby(code, initialPlayers, hostToken) {
     pendingSwap: null
   };
 
+  console.log('[debug] pre-write check hostToken param=' + hostToken);
   if (hostToken) {
+    console.log('[debug] WRITING via hostToken param path: ' + hostToken);
     localStorage.setItem('lobby_host_' + code, hostToken);
   }
 
