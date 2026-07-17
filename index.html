@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Stadium Bravery</title>
+<meta name="description" content="Pick a hero, get a random Overwatch Stadium build, or host a 5v5 custom lobby where everyone rolls together.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='10' y='10' width='80' height='80' rx='18' fill='%237c3aed'/%3E%3Ccircle cx='32' cy='32' r='8' fill='white'/%3E%3Ccircle cx='68' cy='32' r='8' fill='white'/%3E%3Ccircle cx='50' cy='50' r='8' fill='white'/%3E%3Ccircle cx='32' cy='68' r='8' fill='white'/%3E%3Ccircle cx='68' cy='68' r='8' fill='white'/%3E%3C/svg%3E">
+<meta property="og:title" content="Stadium Bravery">
+<meta property="og:description" content="Pick a hero, get a random Overwatch Stadium build, or host a 5v5 custom lobby where everyone rolls together.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://6434363645546.github.io/stadium-bravery/">
+<meta property="og:image" content="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-Reinhardt.webp">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Stadium Bravery">
+<meta name="twitter:description" content="Pick a hero, get a random Overwatch Stadium build, or host a 5v5 custom lobby where everyone rolls together.">
+<meta name="twitter:image" content="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-Reinhardt.webp">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -43,8 +54,13 @@
     transition: color 0.15s;
     user-select: none;
     white-space: nowrap;
+    background: none;
+    border: none;
+    font-family: inherit;
+    padding: 0;
   }
   .rules-trigger:hover { color: #cbd5e1; }
+  .rules-trigger:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }
 
   .subtitle {
     width: 100%;
@@ -184,9 +200,15 @@
     background: #0b0f1a;
     cursor: pointer;
     transition: all 0.15s;
+    font: inherit;
+    color: inherit;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
   }
   .hero-card:hover { border-color: #334155; background: #1e293b; }
   .hero-card.selected { border-color: #3b82f6; background: #1e3a5f; }
+  .hero-card:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
 
   .hero-card img {
     width: 52px;
@@ -1030,7 +1052,7 @@
 
 <div class="header">
   <h1>Stadium Bravery</h1>
-  <span class="rules-trigger" id="rulesTrigger">📋 Rules of Bravery</span>
+  <button type="button" class="rules-trigger" id="rulesTrigger">📋 Rules of Bravery</button>
 </div>
 <p class="subtitle">Pick a hero. Get a random build. No excuses.</p>
 
@@ -1207,9 +1229,9 @@
 </div>
 
 <!-- Rules modal -->
-<div class="modal-backdrop" id="rulesModal">
+<div class="modal-backdrop" id="rulesModal" role="dialog" aria-modal="true" aria-labelledby="rulesModalTitle">
   <div class="modal">
-    <h3>Rules of Bravery</h3>
+    <h3 id="rulesModalTitle">Rules of Bravery</h3>
     <div class="rule">
       <div class="rule-title"><span class="rule-num">1.</span>No Turning Back</div>
       <div class="rule-body">There is no return. Once you got your item build, stick with it!</div>
@@ -1232,11 +1254,42 @@ const SUPA_URL = 'https://qkdvetofbsoynkfprlos.supabase.co';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFrZHZldG9mYnNveW5rZnBybG9zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDU3Mjc0NDEsImV4cCI6MjA2MTMwMzQ0MX0.Moy2MzlEQ0w1cqvnMs3qAV6Mzdm8R1v_YSo7Zw93mG8';
 const HEADERS = { 'apikey': ANON_KEY, 'Authorization': 'Bearer ' + ANON_KEY, 'Content-Type': 'application/json' };
 
+// Quiet retry wrapper for network calls: one flaky connection blip during a
+// game night shouldn't surface as a dead-end error. Retries a couple times
+// with a short delay before giving up and letting the caller handle it.
+async function fetchWithRetry(url, options, retries = 2, delayMs = 500) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url, options);
+      if (!r.ok) throw new Error('Request failed with status ' + r.status);
+      return r;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) await new Promise(res => setTimeout(res, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 // Builds with fewer than this many final-round powers are considered too
 // incomplete to roll and get filtered out before a random pick is made.
 const MIN_BUILD_POWERS = 4;
 function hasEnoughPowers(build) {
   return Array.isArray(build.final_round_powers) && build.final_round_powers.length >= MIN_BUILD_POWERS;
+}
+
+// Player names, build titles, and power names all come from user or community
+// input (lobby players, stadiumbuilds.io submissions). Anything like that gets
+// escaped before it's dropped into an innerHTML template, so a crafted name or
+// title can never inject markup or run script in another player's browser.
+function escapeHtml(str) {
+  return String(str == null ? '' : str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 let allHeroes = [];
@@ -1248,7 +1301,7 @@ let searchQuery = '';
 
 async function loadHeroes() {
   try {
-    const r = await fetch(`${SUPA_URL}/rest/v1/heroes?select=id,name,role,portrait_url&enabled=eq.true&order=name.asc`, { headers: HEADERS });
+    const r = await fetchWithRetry(`${SUPA_URL}/rest/v1/heroes?select=id,name,role,portrait_url&enabled=eq.true&order=name.asc`, { headers: HEADERS });
     allHeroes = await r.json();
     renderHeroes();
   } catch(e) {
@@ -1257,12 +1310,13 @@ async function loadHeroes() {
 }
 
 function heroCard(h) {
-  return `<div class="hero-card ${selectedHeroIds.has(h.id) ? 'selected' : ''}" data-id="${h.id}" onclick="selectHero('${h.id}')">
+  const safeName = escapeHtml(h.name);
+  return `<button type="button" class="hero-card ${selectedHeroIds.has(h.id) ? 'selected' : ''}" data-id="${h.id}" aria-pressed="${selectedHeroIds.has(h.id)}" aria-label="${safeName}" onclick="selectHero('${h.id}')">
     <img src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.webp"
          onerror="this.src='https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.png'"
-         alt="${h.name}">
-    <span>${h.name}</span>
-  </div>`;
+         alt="">
+    <span>${safeName}</span>
+  </button>`;
 }
 
 function renderHeroes() {
@@ -1311,7 +1365,10 @@ function selectHero(id) {
     selectedHeroIds.add(id);
   }
   const card = document.querySelector(`.hero-card[data-id="${id}"]`);
-  if (card) card.classList.toggle('selected', selectedHeroIds.has(id));
+  if (card) {
+    card.classList.toggle('selected', selectedHeroIds.has(id));
+    card.setAttribute('aria-pressed', String(selectedHeroIds.has(id)));
+  }
   updateRollBtn();
 }
 
@@ -1432,6 +1489,32 @@ async function rollAnyHero() {
   }
 }
 
+// Builds rarely change mid-session, so the raw (pre day/mode-filter) list per
+// hero combo is cached in memory - rerolling the same hero doesn't re-hit
+// Supabase every time, and filters are re-applied fresh from the cached list.
+const buildListCache = new Map(); // key -> { builds, ts }
+const BUILD_CACHE_TTL_MS = 5 * 60 * 1000;
+
+async function fetchBuildsForHeroIds(heroIds) {
+  const key = heroIds.slice().sort().join(',');
+  const cached = buildListCache.get(key);
+  if (cached && (Date.now() - cached.ts) < BUILD_CACHE_TTL_MS) {
+    return cached.builds.slice();
+  }
+  const body = { p_hero_ids: heroIds, p_limit: 200, p_offset: 0, p_sort_by: 'newest' };
+  const r = await fetchWithRetry(`${SUPA_URL}/rest/v1/rpc/filter_builds_public_v18`, {
+    method: 'POST',
+    headers: HEADERS,
+    body: JSON.stringify(body)
+  });
+  const builds = await r.json();
+  if (Array.isArray(builds)) {
+    buildListCache.set(key, { builds, ts: Date.now() });
+    return builds.slice();
+  }
+  return builds;
+}
+
 async function rollBuild() {
   if (!selectedHeroIds.size) return;
   const btn = document.getElementById('rollBtn');
@@ -1441,18 +1524,7 @@ async function rollBuild() {
   errEl.classList.remove('visible');
 
   try {
-    const body = {
-      p_hero_ids: Array.from(selectedHeroIds),
-      p_limit: 200,
-      p_offset: 0,
-      p_sort_by: 'newest'
-    };
-    const r = await fetch(`${SUPA_URL}/rest/v1/rpc/filter_builds_public_v18`, {
-      method: 'POST',
-      headers: HEADERS,
-      body: JSON.stringify(body)
-    });
-    let builds = await r.json();
+    let builds = await fetchBuildsForHeroIds(Array.from(selectedHeroIds));
 
     if (!Array.isArray(builds) || builds.length === 0) {
       throw new Error('No builds found for the selected hero' + (selectedHeroIds.size > 1 ? 'es' : '') + '.');
@@ -1517,7 +1589,8 @@ function showResult(build, total) {
     powers.forEach(p => {
       const card = document.createElement('div');
       card.className = 'power-card';
-      card.innerHTML = `<img src="${p.icon_url}" alt="${p.name}" title="${p.name}" loading="lazy"><span>${p.name}</span>`;
+      const safePowerName = escapeHtml(p.name);
+      card.innerHTML = `<img src="${escapeHtml(p.icon_url)}" alt="${safePowerName}" title="${safePowerName}" loading="lazy"><span>${safePowerName}</span>`;
       powersGrid.appendChild(card);
     });
   } else {
@@ -1633,10 +1706,10 @@ function refreshPairDropdowns() {
     let html = '<option value="">No team preference</option>';
     if (others.length) {
       html += '<optgroup label="Keep with">' +
-        others.map(o => `<option value="with:${o.slot}">${o.label}</option>`).join('') +
+        others.map(o => `<option value="with:${o.slot}">${escapeHtml(o.label)}</option>`).join('') +
         '</optgroup>';
       html += '<optgroup label="Keep apart">' +
-        others.map(o => `<option value="against:${o.slot}">${o.label}</option>`).join('') +
+        others.map(o => `<option value="against:${o.slot}">${escapeHtml(o.label)}</option>`).join('') +
         '</optgroup>';
     }
     pairSelect.innerHTML = html;
@@ -1856,9 +1929,6 @@ async function enterLobby(code, initialPlayers, hostToken) {
     await supa.removeChannel(lobby.channel);
   }
 
-  const params = new URLSearchParams(location.search);
-  const claimToken = params.get('host');
-
   lobby = {
     code,
     players: initialPlayers || [],
@@ -1867,12 +1937,25 @@ async function enterLobby(code, initialPlayers, hostToken) {
     channel: null,
     haveState: !!initialPlayers,
     hostToken: hostToken || null,
-    pendingSwap: null
+    pendingSwap: null,
+    reconnecting: false,
+    reconnectAttempts: 0
   };
 
   if (hostToken) {
     localStorage.setItem('lobby_host_' + code, hostToken);
   }
+
+  setupLobbyChannel();
+}
+
+// Wires up the Realtime channel for the current `lobby` object and subscribes.
+// Called on first connect (from enterLobby) and again on every reconnect
+// attempt - it never touches lobby.players/hostToken/pendingSwap, so a dropped
+// connection doesn't lose local state, it just re-establishes the pipe.
+function setupLobbyChannel() {
+  const code = lobby.code;
+  const claimToken = new URLSearchParams(location.search).get('host');
 
   const channel = supa.channel('lobby-' + code, { config: { broadcast: { self: false } } });
   lobby.channel = channel;
@@ -1885,7 +1968,8 @@ async function enterLobby(code, initialPlayers, hostToken) {
     if (claimToken && lobby.hostToken && claimToken === lobby.hostToken) {
       localStorage.setItem('lobby_host_' + code, lobby.hostToken);
     }
-    document.getElementById('joinStatus').textContent = '';
+    const joinStatusEl = document.getElementById('joinStatus');
+    if (joinStatusEl) joinStatusEl.textContent = '';
     renderLobbyRoom();
   });
 
@@ -1896,22 +1980,64 @@ async function enterLobby(code, initialPlayers, hostToken) {
   });
 
   channel.subscribe((status) => {
-    if (status !== 'SUBSCRIBED') return;
-    if (lobby.haveState) {
-      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
-      showLobbyRoom();
-    } else {
-      showLobbyRoom();
-      channel.send({ type: 'broadcast', event: 'state_request', payload: {} });
-      setTimeout(() => {
-        if (!lobby.haveState) {
-          const el = document.getElementById('roomStatus');
-          el.textContent = "Couldn't find that lobby yet. Double check the code, and make sure the host (or another player) still has this page open.";
-          el.className = 'lobby-status error';
-        }
-      }, 4000);
+    if (status === 'SUBSCRIBED') {
+      const wasReconnecting = lobby.reconnecting;
+      lobby.reconnecting = false;
+      lobby.reconnectAttempts = 0;
+
+      if (lobby.haveState) {
+        channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
+        showLobbyRoom();
+      } else {
+        showLobbyRoom();
+        channel.send({ type: 'broadcast', event: 'state_request', payload: {} });
+        setTimeout(() => {
+          if (!lobby.haveState) {
+            const el = document.getElementById('roomStatus');
+            el.textContent = "Couldn't find that lobby yet. Double check the code, and make sure the host (or another player) still has this page open.";
+            el.className = 'lobby-status error';
+          }
+        }, 4000);
+      }
+
+      if (wasReconnecting) {
+        const statusEl = document.getElementById('roomStatus');
+        statusEl.textContent = 'Reconnected.';
+        statusEl.className = 'lobby-status ok';
+      }
+    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+      handleLobbyDisconnect();
     }
   });
+}
+
+// A dropped connection (phone locked, brief network loss) shouldn't strand
+// someone until they manually leave and rejoin - back off and try again a
+// handful of times before giving up and telling them to rejoin themselves.
+function handleLobbyDisconnect() {
+  if (!lobby) return;
+  lobby.reconnecting = true;
+  lobby.reconnectAttempts = (lobby.reconnectAttempts || 0) + 1;
+
+  const statusEl = document.getElementById('roomStatus');
+  if (lobby.reconnectAttempts > 8) {
+    if (statusEl) {
+      statusEl.textContent = "Lost connection and couldn't reconnect. Check your internet and rejoin with the lobby code.";
+      statusEl.className = 'lobby-status error';
+    }
+    return;
+  }
+  if (statusEl) {
+    statusEl.textContent = 'Connection lost. Reconnecting…';
+    statusEl.className = 'lobby-status error';
+  }
+
+  const delay = Math.min(1000 * lobby.reconnectAttempts, 8000);
+  setTimeout(() => {
+    if (!lobby || !lobby.reconnecting) return;
+    supa.removeChannel(lobby.channel);
+    setupLobbyChannel();
+  }, delay);
 }
 
 function showLobbyRoom() {
@@ -1975,7 +2101,7 @@ function renderLobbyRoom() {
   const select = document.getElementById('whoamiSelect');
   const prevValue = lobby.myPlayerId || '';
   select.innerHTML = '<option value="">— Select your name —</option>' +
-    lobby.players.map(p => `<option value="${p.id}">${p.name} (Team ${p.team})</option>`).join('');
+    lobby.players.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (Team ${p.team})</option>`).join('');
   select.value = prevValue;
 
   select.onchange = () => {
@@ -2020,7 +2146,7 @@ function renderPendingSwapBanner(isHost) {
   }
 
   el.innerHTML = `<div class="swap-request-banner">
-    <span>🔄 <strong>${pA.name}</strong> (${pA.role}) wants to swap roles with <strong>${pB.name}</strong> (${pB.role})</span>
+    <span>🔄 <strong>${escapeHtml(pA.name)}</strong> (${pA.role}) wants to swap roles with <strong>${escapeHtml(pB.name)}</strong> (${pB.role})</span>
     <div class="banner-actions">${actions}</div>
   </div>`;
 
@@ -2070,7 +2196,7 @@ function renderTeamColumn(team, containerId, isHost) {
 
 function teamControlsHtml(group, isHost) {
   if (isHost) {
-    const options = group.map(p => `<option value="${p.id}">${p.name} (${p.role || '?'})</option>`).join('');
+    const options = group.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.role || '?'})</option>`).join('');
     const swapHtml = group.length >= 2 ? `
       <div class="swap-row">
         <select class="swap-select-a">${options}</select>
@@ -2090,7 +2216,7 @@ function teamControlsHtml(group, isHost) {
   const me = group.find(p => p.id === lobby.myPlayerId);
   if (!me || group.length < 2 || lobby.pendingSwap) return '';
   const others = group.filter(p => p.id !== me.id);
-  const options = others.map(p => `<option value="${p.id}">${p.name} (${p.role || '?'})</option>`).join('');
+  const options = others.map(p => `<option value="${p.id}">${escapeHtml(p.name)} (${p.role || '?'})</option>`).join('');
   return `
     <div class="swap-row">
       <span style="font-size:0.72rem;color:#475569;">Swap my role with:</span>
@@ -2283,24 +2409,27 @@ function playerRowHtml(p, isHost) {
     avatar = `<img class="player-avatar spin-avatar" src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(rolling.currentName)}.webp" alt="">`;
     rightSide = `<div class="player-hero-name rolling-label">🎲 Rolling…</div>`;
   } else if (p.build) {
-    avatar = `<img class="player-avatar" src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(p.heroName)}.webp" alt="${p.heroName}">`;
+    const safeHeroName = escapeHtml(p.heroName);
+    const safeBuildTitle = escapeHtml(p.build.title);
+    avatar = `<img class="player-avatar" src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(p.heroName)}.webp" alt="${safeHeroName}">`;
     rightSide = `
-      <div class="player-hero-name">${p.heroName}</div>
-      <div class="player-build-title" title="${p.build.title}">${p.build.title}</div>`;
+      <div class="player-hero-name">${safeHeroName}</div>
+      <div class="player-build-title" title="${safeBuildTitle}">${safeBuildTitle}</div>`;
     actionBtns.push(`<a class="btn-small" href="https://stadiumbuilds.io/build/${p.build.id}" target="_blank" rel="noopener">Open ↗</a>`);
-    if (isMe) actionBtns.push(`<button class="btn-small btn-reroll-slot" data-pid="${p.id}">🎲 Reroll</button>`);
+    if (isMe) actionBtns.push(`<button type="button" class="btn-small btn-reroll-slot" data-pid="${p.id}" aria-label="Reroll ${escapeHtml(p.role || '')}">🎲 Reroll</button>`);
   } else if (isMe) {
     avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
-    rightSide = `<button class="btn-roll-slot" data-pid="${p.id}">🎲 Roll ${p.role || ''}</button>`;
+    rightSide = `<button type="button" class="btn-roll-slot" data-pid="${p.id}">🎲 Roll ${p.role || ''}</button>`;
   } else {
     avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
     rightSide = `<div class="player-hero-name" style="color:#334155;">Waiting to roll…</div>`;
   }
 
+  const safeName = escapeHtml(p.name);
   const nameHtml = renamingPlayerId === p.id
-    ? `<input class="rename-input" data-pid="${p.id}" value="${p.name.replace(/"/g, '&quot;')}" style="width:90px;padding:2px 6px;border-radius:6px;border:1px solid #7c3aed;background:#0b0f1a;color:#e2e8f0;font-size:0.82rem;">`
-    : `${p.name} ${isMe ? '<span class="me-tag">YOU</span>' : ''}
-        ${isHost ? `<button class="icon-btn rename-btn" data-pid="${p.id}" title="Rename">✎</button>` : ''}`;
+    ? `<input class="rename-input" data-pid="${p.id}" value="${safeName}" aria-label="Rename player" style="width:90px;padding:2px 6px;border-radius:6px;border:1px solid #7c3aed;background:#0b0f1a;color:#e2e8f0;font-size:0.82rem;">`
+    : `${safeName} ${isMe ? '<span class="me-tag">YOU</span>' : ''}
+        ${isHost ? `<button type="button" class="icon-btn rename-btn" data-pid="${p.id}" title="Rename ${safeName}" aria-label="Rename ${safeName}">✎</button>` : ''}`;
 
   const rowClasses = ['player-row', isMe ? 'is-me' : '', rolling ? 'is-rolling' : '', justLanded[p.id] ? 'roll-landed' : ''].filter(Boolean).join(' ');
 
@@ -2310,7 +2439,7 @@ function playerRowHtml(p, isHost) {
       <div class="player-name">
         <span class="role-badge-fixed ${p.role}">${roleIcon} ${p.role || '?'}</span>
         ${nameHtml}
-        ${isHost ? `<button class="icon-btn remove-btn" data-pid="${p.id}" title="Remove">✕</button>` : ''}
+        ${isHost ? `<button type="button" class="icon-btn remove-btn" data-pid="${p.id}" title="Remove ${safeName}" aria-label="Remove ${safeName}">✕</button>` : ''}
       </div>
       ${rightSide}
     </div>
@@ -2364,14 +2493,11 @@ async function rollForPlayer(playerId) {
   let builds = null;
   let failed = false;
   try {
-    const body = { p_hero_ids: [hero.id], p_limit: 200, p_offset: 0, p_sort_by: 'newest' };
-    const [r] = await Promise.all([
-      fetch(`${SUPA_URL}/rest/v1/rpc/filter_builds_public_v18`, {
-        method: 'POST', headers: HEADERS, body: JSON.stringify(body)
-      }),
+    const [fetched] = await Promise.all([
+      fetchBuildsForHeroIds([hero.id]),
       new Promise(res => setTimeout(res, ROLL_SPIN_MS))
     ]);
-    builds = await r.json();
+    builds = fetched;
   } catch (e) {
     failed = true;
   }
