@@ -902,6 +902,29 @@
     font-size: 0.75rem;
     outline: none;
   }
+
+  .host-hint {
+    font-size: 0.78rem;
+    color: #475569;
+    margin-bottom: 16px;
+    font-style: italic;
+  }
+
+  .swap-request-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    background: #1e1033;
+    border: 1px solid #4c1d95;
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    font-size: 0.85rem;
+    color: #d8b4fe;
+  }
+  .swap-request-banner .banner-actions { display: flex; gap: 8px; }
 </style>
 </head>
 <body>
@@ -1058,7 +1081,8 @@
         <span style="color:#475569;font-size:0.75rem;">LOBBY CODE</span>
         <span class="code" id="roomCodeLabel"></span>
         <button class="btn-small" id="copyInviteBtn">⎘ Copy invite link</button>
-        <button class="btn-small" id="reshuffleBtn">🔀 Reshuffle Teams</button>
+        <button class="btn-small" id="copyHostLinkBtn" style="display:none;">👑 Copy Host Link</button>
+        <button class="btn-small" id="reshuffleBtn" style="display:none;">🔀 Reshuffle Teams</button>
         <button class="btn-small" id="leaveLobbyBtn">✕ Leave</button>
       </div>
       <div class="whoami">
@@ -1066,6 +1090,8 @@
         <select id="whoamiSelect"></select>
       </div>
     </div>
+    <div class="host-hint" id="hostHint" style="display:none;">Only the host can edit the roster or reshuffle teams. Ask them to send you the Host Link to take over.</div>
+    <div id="pendingSwapBanner"></div>
     <div class="teams-grid">
       <div class="team-col A">
         <h4>🛡 Team A</h4>
@@ -1489,6 +1515,24 @@ document.getElementById('copyInviteBtn').addEventListener('click', () => {
     setTimeout(() => { btn.textContent = original; }, 1800);
   });
 });
+document.getElementById('copyHostLinkBtn').addEventListener('click', () => {
+  if (!lobby || !lobby.hostToken) return;
+  const url = `${location.origin}${location.pathname}?lobby=${lobby.code}&host=${lobby.hostToken}`;
+  navigator.clipboard.writeText(url).then(() => {
+    const btn = document.getElementById('copyHostLinkBtn');
+    const original = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = original; }, 1800);
+  });
+});
+
+function genToken() {
+  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+}
+
+function amIHost() {
+  return !!(lobby && lobby.hostToken && localStorage.getItem('lobby_host_' + lobby.code) === lobby.hostToken);
+}
 
 async function createLobby() {
   const inputs = Array.from(createNameInputs.querySelectorAll('input'));
@@ -1518,10 +1562,11 @@ async function createLobby() {
   assignRolesInPlace(players);
 
   const code = genLobbyCode();
+  const hostToken = genToken();
   statusEl.textContent = 'Creating lobby...';
   statusEl.className = 'lobby-status';
 
-  await enterLobby(code, players);
+  await enterLobby(code, players, hostToken);
   statusEl.textContent = '';
 }
 
@@ -1529,42 +1574,56 @@ async function joinLobby(code) {
   const statusEl = document.getElementById('joinStatus');
   statusEl.textContent = 'Connecting...';
   statusEl.className = 'lobby-status';
-  await enterLobby(code, null);
+  await enterLobby(code, null, null);
 }
 
-async function enterLobby(code, initialPlayers) {
+async function enterLobby(code, initialPlayers, hostToken) {
   if (lobby && lobby.channel) {
     await supa.removeChannel(lobby.channel);
   }
+
+  const params = new URLSearchParams(location.search);
+  const claimToken = params.get('host');
 
   lobby = {
     code,
     players: initialPlayers || [],
     myPlayerId: localStorage.getItem('lobby_me_' + code) || null,
     channel: null,
-    haveState: !!initialPlayers
+    haveState: !!initialPlayers,
+    hostToken: hostToken || null,
+    pendingSwap: null
   };
+
+  if (hostToken) {
+    localStorage.setItem('lobby_host_' + code, hostToken);
+  }
 
   const channel = supa.channel('lobby-' + code, { config: { broadcast: { self: false } } });
   lobby.channel = channel;
 
   channel.on('broadcast', { event: 'state_sync' }, ({ payload }) => {
     lobby.players = payload.players;
+    lobby.hostToken = payload.hostToken || lobby.hostToken;
+    lobby.pendingSwap = payload.pendingSwap || null;
     lobby.haveState = true;
+    if (claimToken && lobby.hostToken && claimToken === lobby.hostToken) {
+      localStorage.setItem('lobby_host_' + code, lobby.hostToken);
+    }
     document.getElementById('joinStatus').textContent = '';
     renderLobbyRoom();
   });
 
   channel.on('broadcast', { event: 'state_request' }, () => {
     if (lobby.haveState) {
-      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players } });
+      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
     }
   });
 
   channel.subscribe((status) => {
     if (status !== 'SUBSCRIBED') return;
     if (lobby.haveState) {
-      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players } });
+      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
       showLobbyRoom();
     } else {
       showLobbyRoom();
@@ -1600,11 +1659,12 @@ function leaveLobby() {
 
 function broadcastState() {
   if (!lobby || !lobby.channel) return;
-  lobby.channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players } });
+  lobby.channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostToken: lobby.hostToken, pendingSwap: lobby.pendingSwap } });
 }
 
 function renderLobbyRoom() {
   if (!lobby) return;
+  const isHost = amIHost();
 
   const select = document.getElementById('whoamiSelect');
   const prevValue = lobby.myPlayerId || '';
@@ -1618,16 +1678,50 @@ function renderLobbyRoom() {
     renderLobbyRoom();
   };
 
-  renderTeamColumn('A', 'teamAList');
-  renderTeamColumn('B', 'teamBList');
+  document.getElementById('reshuffleBtn').style.display = isHost ? '' : 'none';
+  document.getElementById('copyHostLinkBtn').style.display = isHost ? '' : 'none';
+  document.getElementById('hostHint').style.display = isHost ? 'none' : '';
+
+  renderPendingSwapBanner(isHost);
+  renderTeamColumn('A', 'teamAList', isHost);
+  renderTeamColumn('B', 'teamBList', isHost);
 }
 
-function renderTeamColumn(team, containerId) {
+function renderPendingSwapBanner(isHost) {
+  const el = document.getElementById('pendingSwapBanner');
+  const ps = lobby.pendingSwap;
+  if (!ps) { el.innerHTML = ''; return; }
+  const pA = lobby.players.find(p => p.id === ps.a);
+  const pB = lobby.players.find(p => p.id === ps.b);
+  if (!pA || !pB) { el.innerHTML = ''; return; }
+  const isTarget = lobby.myPlayerId === ps.b;
+  const isRequester = lobby.myPlayerId === ps.a;
+
+  let actions = '';
+  if (isTarget || isHost) {
+    actions += `<button class="btn-small" id="acceptSwapBtn">✓ Accept</button>`;
+    actions += `<button class="btn-small" id="declineSwapBtn">✕ Decline</button>`;
+  } else if (isRequester) {
+    actions += `<button class="btn-small" id="declineSwapBtn">✕ Cancel request</button>`;
+  }
+
+  el.innerHTML = `<div class="swap-request-banner">
+    <span>🔄 <strong>${pA.name}</strong> (${pA.role}) wants to swap roles with <strong>${pB.name}</strong> (${pB.role})</span>
+    <div class="banner-actions">${actions}</div>
+  </div>`;
+
+  const acceptBtn = document.getElementById('acceptSwapBtn');
+  if (acceptBtn) acceptBtn.addEventListener('click', acceptSwap);
+  const declineBtn = document.getElementById('declineSwapBtn');
+  if (declineBtn) declineBtn.addEventListener('click', declineSwap);
+}
+
+function renderTeamColumn(team, containerId, isHost) {
   const container = document.getElementById(containerId);
   const group = lobby.players.filter(p => p.team === team);
-  const rowsHtml = group.map(playerRowHtml).join('') ||
+  const rowsHtml = group.map(p => playerRowHtml(p, isHost)).join('') ||
     '<div style="color:#334155;font-size:0.8rem;">No players on this team.</div>';
-  container.innerHTML = rowsHtml + teamControlsHtml(group);
+  container.innerHTML = rowsHtml + teamControlsHtml(group, isHost);
 
   container.querySelectorAll('.btn-roll-slot[data-pid]').forEach(btn => {
     btn.addEventListener('click', () => rollForPlayer(btn.dataset.pid));
@@ -1651,7 +1745,7 @@ function renderTeamColumn(team, containerId) {
     input.select();
   });
   const swapBtn = container.querySelector('.swap-btn');
-  if (swapBtn) swapBtn.addEventListener('click', () => swapRoles(containerId));
+  if (swapBtn) swapBtn.addEventListener('click', () => swapRoles(containerId, isHost));
   const addBtn = container.querySelector('.add-player-btn');
   if (addBtn) addBtn.addEventListener('click', () => addPlayerToTeam(team, containerId));
   const addInput = container.querySelector('.add-player-input');
@@ -1660,43 +1754,94 @@ function renderTeamColumn(team, containerId) {
   });
 }
 
-function teamControlsHtml(group) {
-  const options = group.map(p => `<option value="${p.id}">${p.name} (${p.role || '?'})</option>`).join('');
-  const swapHtml = group.length >= 2 ? `
-    <div class="swap-row">
-      <select class="swap-select-a">${options}</select>
-      <span class="swap-arrow">⇄</span>
-      <select class="swap-select-b">${options}</select>
-      <button class="btn-small swap-btn">Swap Roles</button>
-    </div>` : '';
+function teamControlsHtml(group, isHost) {
+  if (isHost) {
+    const options = group.map(p => `<option value="${p.id}">${p.name} (${p.role || '?'})</option>`).join('');
+    const swapHtml = group.length >= 2 ? `
+      <div class="swap-row">
+        <select class="swap-select-a">${options}</select>
+        <span class="swap-arrow">⇄</span>
+        <select class="swap-select-b">${options}</select>
+        <button class="btn-small swap-btn">Swap Roles</button>
+      </div>` : '';
 
-  return swapHtml + `
-    <div class="add-player-row">
-      <input class="add-player-input" placeholder="Add player name">
-      <button class="btn-small add-player-btn">+ Add</button>
+    return swapHtml + `
+      <div class="add-player-row">
+        <input class="add-player-input" placeholder="Add player name">
+        <button class="btn-small add-player-btn">+ Add</button>
+      </div>`;
+  }
+
+  // Non-host: only let a player on this team request a swap with a teammate.
+  const me = group.find(p => p.id === lobby.myPlayerId);
+  if (!me || group.length < 2 || lobby.pendingSwap) return '';
+  const others = group.filter(p => p.id !== me.id);
+  const options = others.map(p => `<option value="${p.id}">${p.name} (${p.role || '?'})</option>`).join('');
+  return `
+    <div class="swap-row">
+      <span style="font-size:0.72rem;color:#475569;">Swap my role with:</span>
+      <select class="swap-select-b">${options}</select>
+      <button class="btn-small swap-btn">Request Swap</button>
     </div>`;
 }
 
-function swapRoles(containerId) {
+function swapRoles(containerId, isHost) {
   const container = document.getElementById(containerId);
-  const selA = container.querySelector('.swap-select-a');
-  const selB = container.querySelector('.swap-select-b');
-  if (!selA || !selB) return;
-  const idA = selA.value, idB = selB.value;
-  if (!idA || !idB || idA === idB) return;
+  if (isHost && amIHost()) {
+    const selA = container.querySelector('.swap-select-a');
+    const selB = container.querySelector('.swap-select-b');
+    if (!selA || !selB) return;
+    const idA = selA.value, idB = selB.value;
+    if (!idA || !idB || idA === idB) return;
+    executeSwap(idA, idB);
+    lobby.pendingSwap = null;
+    const statusEl = document.getElementById('roomStatus');
+    statusEl.textContent = 'Roles swapped by host.';
+    statusEl.className = 'lobby-status ok';
+    renderLobbyRoom();
+    broadcastState();
+  } else {
+    if (lobby.pendingSwap) return;
+    const selB = container.querySelector('.swap-select-b');
+    if (!selB || !selB.value || !lobby.myPlayerId) return;
+    lobby.pendingSwap = { a: lobby.myPlayerId, b: selB.value };
+    renderLobbyRoom();
+    broadcastState();
+  }
+}
+
+function executeSwap(idA, idB) {
   const pA = lobby.players.find(p => p.id === idA);
   const pB = lobby.players.find(p => p.id === idB);
   if (!pA || !pB) return;
   const tmp = pA.role; pA.role = pB.role; pB.role = tmp;
   [pA, pB].forEach(p => { p.heroId = null; p.heroName = null; p.heroRole = null; p.build = null; });
+}
+
+function acceptSwap() {
+  if (!lobby.pendingSwap) return;
+  const { a, b } = lobby.pendingSwap;
+  const pA = lobby.players.find(p => p.id === a);
+  const pB = lobby.players.find(p => p.id === b);
+  executeSwap(a, b);
+  lobby.pendingSwap = null;
   const statusEl = document.getElementById('roomStatus');
-  statusEl.textContent = `Swapped roles between ${pA.name} and ${pB.name}. Both need to reroll.`;
-  statusEl.className = 'lobby-status ok';
+  if (pA && pB) {
+    statusEl.textContent = `Swapped roles between ${pA.name} and ${pB.name}. Both need to reroll.`;
+    statusEl.className = 'lobby-status ok';
+  }
+  renderLobbyRoom();
+  broadcastState();
+}
+
+function declineSwap() {
+  lobby.pendingSwap = null;
   renderLobbyRoom();
   broadcastState();
 }
 
 function addPlayerToTeam(team, containerId) {
+  if (!amIHost()) return;
   const container = document.getElementById(containerId);
   const input = container.querySelector('.add-player-input');
   const name = input.value.trim();
@@ -1727,6 +1872,7 @@ function addPlayerToTeam(team, containerId) {
 let renamingPlayerId = null;
 
 function removePlayer(id) {
+  if (!amIHost()) return;
   const player = lobby.players.find(p => p.id === id);
   if (!player) return;
   lobby.players = lobby.players.filter(p => p.id !== id);
@@ -1742,12 +1888,14 @@ function removePlayer(id) {
 }
 
 function startRenamePlayer(id) {
+  if (!amIHost()) return;
   renamingPlayerId = id;
   renderLobbyRoom();
 }
 
 function commitRenamePlayer(id, rawValue) {
   renamingPlayerId = null;
+  if (!amIHost()) { renderLobbyRoom(); return; }
   const player = lobby.players.find(p => p.id === id);
   if (!player) return;
   const trimmed = (rawValue || '').trim();
@@ -1768,6 +1916,7 @@ function commitRenamePlayer(id, rawValue) {
 }
 
 function reshuffleTeams() {
+  if (!amIHost()) return;
   if (!lobby || lobby.players.length < 2) return;
   const shuffled = shuffleArr(lobby.players);
   const mid = Math.ceil(shuffled.length / 2);
@@ -1786,7 +1935,7 @@ function reshuffleTeams() {
   broadcastState();
 }
 
-function playerRowHtml(p) {
+function playerRowHtml(p, isHost) {
   const isMe = lobby.myPlayerId === p.id;
   const roleIcon = ROLE_ICON[p.role] || '❔';
   const avatar = p.heroName
@@ -1813,7 +1962,7 @@ function playerRowHtml(p) {
   const nameHtml = renamingPlayerId === p.id
     ? `<input class="rename-input" data-pid="${p.id}" value="${p.name.replace(/"/g, '&quot;')}" style="width:90px;padding:2px 6px;border-radius:6px;border:1px solid #7c3aed;background:#0b0f1a;color:#e2e8f0;font-size:0.82rem;">`
     : `${p.name} ${isMe ? '<span class="me-tag">YOU</span>' : ''}
-        <button class="icon-btn rename-btn" data-pid="${p.id}" title="Rename">✎</button>`;
+        ${isHost ? `<button class="icon-btn rename-btn" data-pid="${p.id}" title="Rename">✎</button>` : ''}`;
 
   return `<div class="player-row ${isMe ? 'is-me' : ''}">
     ${avatar}
@@ -1821,7 +1970,7 @@ function playerRowHtml(p) {
       <div class="player-name">
         <span class="role-badge-fixed ${p.role}">${roleIcon} ${p.role || '?'}</span>
         ${nameHtml}
-        <button class="icon-btn remove-btn" data-pid="${p.id}" title="Remove">✕</button>
+        ${isHost ? `<button class="icon-btn remove-btn" data-pid="${p.id}" title="Remove">✕</button>` : ''}
       </div>
       ${rightSide}
     </div>
