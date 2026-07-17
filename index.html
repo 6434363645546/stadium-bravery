@@ -1584,6 +1584,7 @@ async function enterLobby(code, initialPlayers, hostToken) {
 
   const params = new URLSearchParams(location.search);
   const claimToken = params.get('host');
+  console.log('[debug] enterLobby called, search=' + location.search + ' claimToken=' + claimToken);
 
   lobby = {
     code,
@@ -1607,11 +1608,11 @@ async function enterLobby(code, initialPlayers, hostToken) {
     lobby.hostToken = payload.hostToken || lobby.hostToken;
     lobby.pendingSwap = payload.pendingSwap || null;
     lobby.haveState = true;
-    console.log('[debug] state_sync', { claimToken, payloadHostToken: payload.hostToken, storedBefore: localStorage.getItem('lobby_host_' + code) });
+    console.log('[debug] state_sync ' + JSON.stringify({ claimToken, payloadHostToken: payload.hostToken, storedBefore: localStorage.getItem('lobby_host_' + code) }));
     if (claimToken && lobby.hostToken && claimToken === lobby.hostToken) {
       localStorage.setItem('lobby_host_' + code, lobby.hostToken);
     }
-    console.log('[debug] storedAfter', localStorage.getItem('lobby_host_' + code));
+    console.log('[debug] storedAfter ' + localStorage.getItem('lobby_host_' + code));
     document.getElementById('joinStatus').textContent = '';
     renderLobbyRoom();
   });
