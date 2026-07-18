@@ -118,12 +118,39 @@
   /* ── Two-panel layout ── */
   .layout {
     width: 100%;
-    max-width: 1200px;
+    max-width: 1400px;
     display: grid;
     grid-template-columns: 1fr 380px;
     gap: 28px;
     align-items: start;
   }
+
+  /* Inside the "Choose Hero" panel: the hero grid on one side, the roll
+     controls (role-roll shortcuts, build filters, Roll Random Build) on the
+     other, instead of the controls sitting stacked underneath a full-width
+     grid. Wraps back to stacked if the sidebar can't fit next to the grid. */
+  .hero-picker-columns {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .hero-picker-main { flex: 1 1 380px; min-width: 0; }
+  .hero-picker-side {
+    flex: 1 1 220px;
+    max-width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  /* These four are normally laid out as rows across a full-width panel -
+     narrowed down to a ~240px sidebar column, they read better stacked. */
+  .hero-picker-side .role-roll-row { flex-direction: column; margin-bottom: 0; }
+  .hero-picker-side .filters { flex-direction: column; align-items: stretch; gap: 14px; margin-bottom: 0; }
+  .hero-picker-side .filter-group { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .hero-picker-side .toggle-group { flex-wrap: wrap; }
+  .hero-picker-side .cta-row { flex-direction: column; }
+  .hero-picker-side .btn-random { width: 100%; }
 
   /* ── Left panel ── */
   .panel {
@@ -204,33 +231,31 @@
   .role-tab[data-role="Damage"].active { background: #b91c1c; border-color: #b91c1c; }
   .role-tab[data-role="Support"].active { background: #047857; border-color: #047857; }
 
-  /* Hero grid - wraps into a tall multi-row grid by default (also what phones
-     get, see the max-width:800px override below). On wider screens that's a
-     lot of vertical scrolling for what's really one decision, so it becomes a
-     single horizontally-scrolling row instead - same cards, just laid out
-     sideways. Role-group-label headers span the full row width in both
-     layouts, so "All heroes" grouping still reads fine either way. */
+  /* Hero grid - plain wrapping grid when a single role (or a search) narrows
+     the list down to one flat pool. */
   .hero-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     gap: 10px;
     margin-bottom: 24px;
   }
-  @media (min-width: 801px) {
-    .hero-grid {
-      display: flex;
-      flex-wrap: nowrap;
-      overflow-x: auto;
-      overflow-y: hidden;
-      padding-bottom: 12px;
-      scroll-snap-type: x proximity;
-    }
-    .hero-grid .hero-card { flex: 0 0 80px; scroll-snap-align: start; }
-    .hero-grid .role-group-label { flex: 0 0 auto; display: flex; align-items: center; padding-right: 6px; }
-    .hero-grid::-webkit-scrollbar { height: 8px; }
-    .hero-grid::-webkit-scrollbar-track { background: #0b0f1a; border-radius: 4px; }
-    .hero-grid::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-    .hero-grid::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+  /* "All roles" view instead groups heroes into their own Tank/Damage/Support
+     rectangle - each one keeps wrapping internally into however many rows it
+     needs - and lays the three rectangles out side by side rather than
+     stacked, so scanning "what plays what" doesn't mean scrolling past a
+     dozen Damage heroes to reach Support. */
+  .hero-grid.grouped {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 22px;
+    align-items: flex-start;
+  }
+  .hero-role-col { flex: 1 1 190px; min-width: 170px; max-width: 260px; }
+  .hero-role-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: 8px;
   }
 
   .hero-card {
@@ -1180,6 +1205,15 @@
     .hero-grid { grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 8px; }
     .hero-card img { width: 44px; height: 44px; }
 
+    /* The side-by-side hero picker / roll-controls split, and the three
+       role rectangles inside the grouped grid, both go back to a single
+       stacked column - there's no spare width for columns on a phone. */
+    .hero-picker-columns { flex-direction: column; }
+    .hero-picker-side { max-width: none; }
+    .hero-grid.grouped { flex-direction: column; }
+    .hero-role-col { max-width: none; }
+    .hero-role-grid { grid-template-columns: repeat(auto-fill, minmax(66px, 1fr)); gap: 8px; }
+
     .role-roll-row { flex-wrap: wrap; }
     .btn-role-roll { flex: 1 1 30%; }
 
@@ -1229,57 +1263,63 @@
   <div class="panel">
     <div class="panel-title">Choose Hero</div>
 
-    <div class="search-row">
-      <input class="search-input" id="heroSearch" type="text" placeholder="Search heroes…" autocomplete="off">
-      <button class="clear-btn" id="clearBtn">✕ Clear selection</button>
-    </div>
+    <div class="hero-picker-columns">
+      <div class="hero-picker-main">
+        <div class="search-row">
+          <input class="search-input" id="heroSearch" type="text" placeholder="Search heroes…" autocomplete="off">
+          <button class="clear-btn" id="clearBtn">✕ Clear selection</button>
+        </div>
 
-    <div class="role-tabs">
-      <button class="role-tab active" data-role="All">All</button>
-      <button class="role-tab" data-role="Tank">Tank</button>
-      <button class="role-tab" data-role="Damage">Damage</button>
-      <button class="role-tab" data-role="Support">Support</button>
-    </div>
+        <div class="role-tabs">
+          <button class="role-tab active" data-role="All">All</button>
+          <button class="role-tab" data-role="Tank">Tank</button>
+          <button class="role-tab" data-role="Damage">Damage</button>
+          <button class="role-tab" data-role="Support">Support</button>
+        </div>
 
-    <div class="hero-grid" id="heroGrid">
-      <div style="color:#475569;font-size:0.875rem;grid-column:1/-1;padding:20px 0;">Loading heroes...</div>
-    </div>
-
-    <div class="role-roll-row">
-      <button class="btn-role-roll" data-role="Tank">🛡️ Any Tank</button>
-      <button class="btn-role-roll" data-role="Damage">⚔️ Any Damage</button>
-      <button class="btn-role-roll" data-role="Support">💚 Any Support</button>
-    </div>
-
-    <div class="filters">
-      <div class="filter-group">
-        <span class="filter-label">Builds from:</span>
-        <div class="toggle-group" id="timeFilter">
-          <button class="toggle-btn active" data-days="30">Last 30 days</button>
-          <button class="toggle-btn" data-days="0">All time</button>
+        <div class="hero-grid" id="heroGrid">
+          <div style="color:#475569;font-size:0.875rem;padding:20px 0;">Loading heroes...</div>
         </div>
       </div>
-      <div class="filter-group">
-        <span class="filter-label">Mode:</span>
-        <div class="toggle-group" id="modeFilter">
-          <button class="toggle-btn active" data-mode="competitive">Ranked</button>
-          <button class="toggle-btn" data-mode="quickplay">Quick Play</button>
+
+      <div class="hero-picker-side">
+        <div class="role-roll-row">
+          <button class="btn-role-roll" data-role="Tank">🛡️ Any Tank</button>
+          <button class="btn-role-roll" data-role="Damage">⚔️ Any Damage</button>
+          <button class="btn-role-roll" data-role="Support">💚 Any Support</button>
+        </div>
+
+        <div class="filters">
+          <div class="filter-group">
+            <span class="filter-label">Builds from:</span>
+            <div class="toggle-group" id="timeFilter">
+              <button class="toggle-btn active" data-days="30">Last 30 days</button>
+              <button class="toggle-btn" data-days="0">All time</button>
+            </div>
+          </div>
+          <div class="filter-group">
+            <span class="filter-label">Mode:</span>
+            <div class="toggle-group" id="modeFilter">
+              <button class="toggle-btn active" data-mode="competitive">Ranked</button>
+              <button class="toggle-btn" data-mode="quickplay">Quick Play</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="cta-row">
+          <button class="btn-random" id="rollBtn" disabled>
+            <span class="btn-text">🎲 Roll Random Build</span>
+            <div class="spinner"></div>
+          </button>
+          <button class="btn-random" id="rollAnyBtn" style="background:linear-gradient(135deg,#334155,#1e293b);" title="Random hero + random build">
+            <span class="btn-text">🎰 Any Hero</span>
+            <div class="spinner"></div>
+          </button>
+        </div>
+        <div style="text-align:center;margin-top:10px;font-size:0.75rem;color:#334155;">
+          Press <kbd style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:1px 7px;font-size:0.72rem;color:#64748b;font-family:inherit;">Space</kbd> to reroll
         </div>
       </div>
-    </div>
-
-    <div class="cta-row">
-      <button class="btn-random" id="rollBtn" disabled>
-        <span class="btn-text">🎲 Roll Random Build</span>
-        <div class="spinner"></div>
-      </button>
-      <button class="btn-random" id="rollAnyBtn" style="flex:0;padding:13px 20px;background:linear-gradient(135deg,#334155,#1e293b);align-self:stretch;" title="Random hero + random build">
-        <span class="btn-text">🎰 Any Hero</span>
-        <div class="spinner"></div>
-      </button>
-    </div>
-    <div style="text-align:center;margin-top:10px;font-size:0.75rem;color:#334155;">
-      Press <kbd style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:1px 7px;font-size:0.72rem;color:#64748b;font-family:inherit;">Space</kbd> to reroll
     </div>
   </div>
 
@@ -1518,21 +1558,29 @@ function renderHeroes() {
   if (q) pool = pool.filter(h => h.name.toLowerCase().includes(q));
 
   if (pool.length === 0) {
-    grid.innerHTML = '<div style="color:#475569;font-size:0.875rem;grid-column:1/-1;padding:20px 0;">No heroes found.</div>';
+    grid.classList.remove('grouped');
+    grid.innerHTML = '<div style="color:#475569;font-size:0.875rem;padding:20px 0;">No heroes found.</div>';
     return;
   }
 
   if (activeRole === 'All' && !q) {
+    // One rectangle per role, side by side, instead of a single flat list -
+    // each role's heroes still wrap onto as many rows as they need, they
+    // just don't spill into the next role's heroes below them.
     const roleOrder = ['Tank', 'Damage', 'Support'];
     let html = '';
     for (const role of roleOrder) {
       const group = pool.filter(h => h.role === role);
       if (!group.length) continue;
-      html += `<div class="role-group-label ${role}">${role}</div>`;
-      html += group.map(heroCard).join('');
+      html += `<div class="hero-role-col">
+        <div class="role-group-label ${role}">${role}</div>
+        <div class="hero-role-grid">${group.map(heroCard).join('')}</div>
+      </div>`;
     }
+    grid.classList.add('grouped');
     grid.innerHTML = html;
   } else {
+    grid.classList.remove('grouped');
     grid.innerHTML = pool.map(heroCard).join('');
   }
 }
