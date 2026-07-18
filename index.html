@@ -54,6 +54,21 @@
     color: #fff;
   }
 
+  /* The title doubles as a "back to main menu" link - looks exactly like the
+     plain h1 text used to, just with a hover/focus cue that it's clickable. */
+  .home-link {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .home-link:hover { opacity: 0.85; }
+  .home-link:focus-visible { outline: 2px solid #60a5fa; outline-offset: 4px; border-radius: 4px; }
+
   .rules-trigger {
     color: #94a3b8;
     font-size: 0.9rem;
@@ -189,12 +204,33 @@
   .role-tab[data-role="Damage"].active { background: #b91c1c; border-color: #b91c1c; }
   .role-tab[data-role="Support"].active { background: #047857; border-color: #047857; }
 
-  /* Hero grid */
+  /* Hero grid - wraps into a tall multi-row grid by default (also what phones
+     get, see the max-width:800px override below). On wider screens that's a
+     lot of vertical scrolling for what's really one decision, so it becomes a
+     single horizontally-scrolling row instead - same cards, just laid out
+     sideways. Role-group-label headers span the full row width in both
+     layouts, so "All heroes" grouping still reads fine either way. */
   .hero-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     gap: 10px;
     margin-bottom: 24px;
+  }
+  @media (min-width: 801px) {
+    .hero-grid {
+      display: flex;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 12px;
+      scroll-snap-type: x proximity;
+    }
+    .hero-grid .hero-card { flex: 0 0 80px; scroll-snap-align: start; }
+    .hero-grid .role-group-label { flex: 0 0 auto; display: flex; align-items: center; padding-right: 6px; }
+    .hero-grid::-webkit-scrollbar { height: 8px; }
+    .hero-grid::-webkit-scrollbar-track { background: #0b0f1a; border-radius: 4px; }
+    .hero-grid::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    .hero-grid::-webkit-scrollbar-thumb:hover { background: #475569; }
   }
 
   .hero-card {
@@ -685,8 +721,72 @@
   }
   .create-player-row .create-role-select { width: 92px; flex-shrink: 0; }
   .create-player-row .create-pair-select { flex: 1 1 130px; min-width: 112px; }
-  .create-player-row .create-hero-select { flex: 1 1 120px; min-width: 100px; }
   .create-player-row select:focus { border-color: #334155; }
+
+  /* Preferred-hero trigger - opens the icon-grid picker modal instead of
+     being a plain <select>. Its actual value lives in a hidden input right
+     next to it (see .create-hero-select below), so the rest of the
+     create-lobby code that reads that value doesn't need to change. */
+  .create-player-row .hero-pref-trigger {
+    flex: 1 1 120px;
+    min-width: 100px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: #0b0f1a;
+    color: #64748b;
+    font-size: 0.74rem;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+  .create-player-row .hero-pref-trigger:hover { border-color: #334155; color: #94a3b8; }
+  .create-player-row .hero-pref-trigger.has-pref { border-color: #7c3aed; color: #e2e8f0; }
+  .hpt-icon {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #1e293b;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .hpt-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .hpt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .create-player-row .create-hero-select { display: none; }
+
+  /* Hero-preference modal - same hero-card/role-group-label look as the
+     Solo Roll picker, just inside a wider scrollable modal. */
+  .modal.modal-wide { max-width: 640px; }
+  .hero-pref-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 16px;
+    border-radius: 8px;
+    border: 1px dashed #334155;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .hero-pref-clear:hover { border-color: #475569; color: #cbd5e1; }
+  .hero-pref-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+    gap: 10px;
+    max-height: 55vh;
+    overflow-y: auto;
+    padding-right: 4px;
+    margin-bottom: 20px;
+  }
 
   .join-code-input {
     width: 100%;
@@ -1112,7 +1212,7 @@
 <body>
 
 <div class="header">
-  <h1>Stadium Bravery</h1>
+  <h1><button type="button" class="home-link" id="homeLink" title="Back to main menu">Stadium Bravery</button></h1>
   <button type="button" class="rules-trigger" id="rulesTrigger">📋 Rules of Bravery</button>
 </div>
 <p class="subtitle">Pick a hero. Get a random build. No excuses.</p>
@@ -1311,6 +1411,16 @@
       <div class="rule-body">Fight until the last round. There is no surrendering in the stadium.</div>
     </div>
     <button class="modal-close" id="rulesClose">Got it</button>
+  </div>
+</div>
+
+<!-- Preferred-hero picker modal (5v5 Custom Lobby create form) -->
+<div class="modal-backdrop" id="heroPrefModal" role="dialog" aria-modal="true" aria-labelledby="heroPrefModalTitle">
+  <div class="modal modal-wide">
+    <h3 id="heroPrefModalTitle">Preferred hero</h3>
+    <button type="button" class="hero-pref-clear" id="heroPrefClearBtn">🎲 Any hero (let the roll decide)</button>
+    <div class="hero-pref-grid" id="heroPrefGrid"></div>
+    <button class="modal-close" id="heroPrefClose">Close</button>
   </div>
 </div>
 
@@ -1744,14 +1854,23 @@ function nextRoleForTeam(players, team) {
 }
 
 // ---- View switching ----
+function switchView(view) {
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.getElementById('soloView').style.display = view === 'solo' ? '' : 'none';
+  document.getElementById('lobbyView').style.display = view === 'lobby' ? '' : 'none';
+}
+
 document.querySelectorAll('.mode-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    const view = tab.dataset.view;
-    document.getElementById('soloView').style.display = view === 'solo' ? '' : 'none';
-    document.getElementById('lobbyView').style.display = view === 'lobby' ? '' : 'none';
-  });
+  tab.addEventListener('click', () => switchView(tab.dataset.view));
+});
+
+// Clicking the site title acts like a "home" button - back to Solo Roll,
+// leaving whatever lobby room might currently be open behind (rejoining
+// later with the same code still works, this only clears the local view).
+document.getElementById('homeLink').addEventListener('click', () => {
+  if (typeof lobby !== 'undefined' && lobby) leaveLobby();
+  switchView('solo');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 // ---- Create-lobby name + role + team-pairing inputs (up to 10) ----
@@ -1770,24 +1889,108 @@ for (let i = 1; i <= 10; i++) {
     <select class="create-pair-select" data-slot="${i}">
       <option value="">No team preference</option>
     </select>
-    <select class="create-hero-select" data-slot="${i}">
-      <option value="">Any hero</option>
-    </select>`;
+    <button type="button" class="hero-pref-trigger" data-slot="${i}" aria-haspopup="dialog">
+      <span class="hpt-icon"></span><span class="hpt-label">Any hero</span>
+    </button>
+    <input type="hidden" class="create-hero-select" data-slot="${i}" value="">`;
   createNameInputs.appendChild(row);
 }
 
-// The hero dropdown can't be populated until the hero list itself has
-// loaded, which happens async in the other script block - heroesReadyPromise
-// is that same promise, shared as a plain global between the two inline
-// scripts (no module system here, so this just works).
-heroesReadyPromise.then(populateCreateHeroSelects);
-function populateCreateHeroSelects() {
-  const options = '<option value="">Any hero</option>' +
-    allHeroes.map(h => `<option value="${escapeHtml(h.id)}">${escapeHtml(h.name)}</option>`).join('');
-  createNameInputs.querySelectorAll('.create-hero-select').forEach(sel => {
-    sel.innerHTML = options;
-  });
+// ---- Preferred-hero picker modal ----
+// A plain alphabetical <select> made it hard to browse 30+ heroes with any
+// sense of "what plays what role". This reuses the same hero-card /
+// role-group-label look as the Solo Roll picker, in a modal shared by all 10
+// rows (built once, whichever row's trigger was clicked last owns it) rather
+// than duplicating a full hero grid ten times over.
+let heroPrefSlot = null;
+const heroPrefModal = document.getElementById('heroPrefModal');
+const heroPrefGrid = document.getElementById('heroPrefGrid');
+
+function heroPrefCard(h) {
+  const safeName = escapeHtml(h.name);
+  const safeId = escapeHtml(h.id);
+  return `<button type="button" class="hero-card" data-hero-id="${safeId}" aria-label="${safeName}">
+    <img src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(h.name)}.webp" alt="">
+    <span>${safeName}</span>
+  </button>`;
 }
+
+function renderHeroPrefGrid() {
+  const roleOrder = ['Tank', 'Damage', 'Support'];
+  let html = '';
+  for (const role of roleOrder) {
+    const group = allHeroes.filter(h => h.role === role);
+    if (!group.length) continue;
+    html += `<div class="role-group-label ${role}">${role}</div>`;
+    html += group.map(heroPrefCard).join('');
+  }
+  heroPrefGrid.innerHTML = html;
+}
+
+async function openHeroPrefModal(slot) {
+  await heroesReadyPromise;
+  heroPrefSlot = slot;
+  renderHeroPrefGrid();
+  heroPrefModal.classList.add('open');
+}
+
+function closeHeroPrefModal() {
+  heroPrefModal.classList.remove('open');
+  heroPrefSlot = null;
+}
+
+function findCreateRow(slot) {
+  return Array.from(createNameInputs.querySelectorAll('.create-player-row'))
+    .find(row => row.querySelector('.create-hero-select').dataset.slot === slot);
+}
+
+function setRowHeroPref(slot, heroId) {
+  const row = findCreateRow(slot);
+  if (!row) return;
+  const hiddenInput = row.querySelector('.create-hero-select');
+  const trigger = row.querySelector('.hero-pref-trigger');
+  const icon = trigger.querySelector('.hpt-icon');
+  const label = trigger.querySelector('.hpt-label');
+
+  if (!heroId) {
+    hiddenInput.value = '';
+    icon.innerHTML = '';
+    label.textContent = 'Any hero';
+    trigger.classList.remove('has-pref');
+    return;
+  }
+  const hero = allHeroes.find(h => h.id === heroId);
+  if (!hero) return;
+  hiddenInput.value = heroId;
+  icon.innerHTML = `<img src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(hero.name)}.webp" alt="">`;
+  label.textContent = hero.name;
+  trigger.classList.add('has-pref');
+
+  // The hero implies its role - keep the role dropdown in sync immediately
+  // rather than letting the two disagree (a mismatch there used to make the
+  // preference get silently dropped when the player actually rolled).
+  const roleSelect = row.querySelector('.create-role-select');
+  if (roleSelect.value !== hero.role) roleSelect.value = hero.role;
+}
+
+createNameInputs.addEventListener('click', e => {
+  const trigger = e.target.closest('.hero-pref-trigger');
+  if (trigger) openHeroPrefModal(trigger.dataset.slot);
+});
+heroPrefGrid.addEventListener('click', e => {
+  const card = e.target.closest('.hero-card');
+  if (card && card.dataset.heroId && heroPrefSlot) {
+    setRowHeroPref(heroPrefSlot, card.dataset.heroId);
+    closeHeroPrefModal();
+  }
+});
+document.getElementById('heroPrefClearBtn').addEventListener('click', () => {
+  if (heroPrefSlot) setRowHeroPref(heroPrefSlot, null);
+  closeHeroPrefModal();
+});
+document.getElementById('heroPrefClose').addEventListener('click', closeHeroPrefModal);
+heroPrefModal.addEventListener('click', e => { if (e.target === heroPrefModal) closeHeroPrefModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeHeroPrefModal(); });
 
 function refreshPairDropdowns() {
   const rows = Array.from(createNameInputs.querySelectorAll('.create-player-row'));
@@ -1984,8 +2187,16 @@ async function createLobby() {
   const entries = rows.map(row => {
     const slot = row.querySelector('.create-name-input').dataset.slot;
     const name = row.querySelector('.create-name-input').value.trim().slice(0, 24);
-    const role = row.querySelector('.create-role-select').value || null;
+    let role = row.querySelector('.create-role-select').value || null;
     const heroPref = row.querySelector('.create-hero-select').value || null;
+    // A preferred hero only plays one role - if it doesn't match whatever
+    // role got picked (or no role was picked at all), the hero wins. Rolling
+    // filters candidates by the assigned role first, so a mismatch here used
+    // to make the preference get silently dropped at roll time.
+    if (heroPref) {
+      const prefHero = allHeroes.find(h => h.id === heroPref);
+      if (prefHero) role = prefHero.role;
+    }
     const pairRaw = row.querySelector('.create-pair-select').value;
     let pair = null;
     if (pairRaw) {
