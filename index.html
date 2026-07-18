@@ -22,7 +22,7 @@
      will refuse to run it - a genuine maintenance step, but the payoff is
      that any script content an attacker manages to inject some other way
      (since it won't match either hash) still gets blocked outright. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-gqLZH0GYRCoUp+ckRWNGcrHbfBQ7HAsHQWoZHDBOQRE=' 'sha256-uXV8DBKrJvOdRplKhlDv8zhgo1uycjOx0LtpDn2bMwc='; style-src 'self' 'unsafe-inline'; img-src 'self' https://qkdvetofbsoynkfprlos.supabase.co data:; connect-src 'self' https://qkdvetofbsoynkfprlos.supabase.co wss://qkdvetofbsoynkfprlos.supabase.co; font-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-gqLZH0GYRCoUp+ckRWNGcrHbfBQ7HAsHQWoZHDBOQRE=' 'sha256-JVNmohZ2o1XfFABaPB0Kr4wZ+VsdK4YtkaYY3JUyVq8='; style-src 'self' 'unsafe-inline'; img-src 'self' https://qkdvetofbsoynkfprlos.supabase.co data:; connect-src 'self' https://qkdvetofbsoynkfprlos.supabase.co wss://qkdvetofbsoynkfprlos.supabase.co; font-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none';">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1093,7 +1093,7 @@
     </div>
 
     <div class="role-roll-row">
-      <button class="btn-role-roll" data-role="Tank">🛡 Any Tank</button>
+      <button class="btn-role-roll" data-role="Tank">🛡️ Any Tank</button>
       <button class="btn-role-roll" data-role="Damage">⚔️ Any Damage</button>
       <button class="btn-role-roll" data-role="Support">💚 Any Support</button>
     </div>
@@ -1223,7 +1223,7 @@
     <div id="pendingSwapBanner"></div>
     <div class="teams-grid">
       <div class="team-col A">
-        <h4>🛡 Team A</h4>
+        <h4>🛡️ Team A</h4>
         <div id="teamAList"></div>
       </div>
       <div class="team-col B">
@@ -1665,7 +1665,7 @@ function shuffleArr(arr) {
 // Locked team comp: 1 Tank, 2 Damage, 2 Support per team of 5.
 // Assigns roles in place based on each player's position within their team.
 const ROLE_TEMPLATE = ['Tank', 'Damage', 'Damage', 'Support', 'Support'];
-const ROLE_ICON = { Tank: '🛡', Damage: '⚔️', Support: '💚' };
+const ROLE_ICON = { Tank: '🛡️', Damage: '⚔️', Support: '💚' };
 
 function assignRolesInPlace(players) {
   ['A', 'B'].forEach(team => {
@@ -1705,7 +1705,7 @@ for (let i = 1; i <= 10; i++) {
     <input class="create-name-input" placeholder="Player ${i}" data-slot="${i}" maxlength="24">
     <select class="create-role-select" data-slot="${i}">
       <option value="">Any role</option>
-      <option value="Tank">🛡 Tank</option>
+      <option value="Tank">🛡️ Tank</option>
       <option value="Damage">⚔️ Damage</option>
       <option value="Support">💚 Support</option>
     </select>
