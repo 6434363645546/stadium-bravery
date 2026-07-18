@@ -15,14 +15,14 @@
 <meta name="twitter:title" content="Stadium Bravery">
 <meta name="twitter:description" content="Pick a hero, get a random Overwatch Stadium build, or host a 5v5 custom lobby where everyone rolls together.">
 <meta name="twitter:image" content="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-Reinhardt.webp">
-<!-- The two "sha256-" entries in script-src allow-list the exact contents of
-     this page's two inline <script> blocks (that's how all of the site's own
-     JS runs - there's no external app bundle). If either script block is
-     edited, its hash changes and MUST be recomputed here, or the browser
-     will refuse to run it - a genuine maintenance step, but the payoff is
-     that any script content an attacker manages to inject some other way
-     (since it won't match either hash) still gets blocked outright. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-gqLZH0GYRCoUp+ckRWNGcrHbfBQ7HAsHQWoZHDBOQRE=' 'sha256-xcRyJipmUe5mecmO/nUWO1CDHWCZyTuqrfNpLI31pUs='; style-src 'self' 'unsafe-inline'; img-src 'self' https://qkdvetofbsoynkfprlos.supabase.co https://api.stadiumbuilds.io data:; connect-src 'self' https://qkdvetofbsoynkfprlos.supabase.co wss://qkdvetofbsoynkfprlos.supabase.co; font-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none';">
+<!-- script-src allows inline scripts ('unsafe-inline') because this page's
+     whole app lives in two inline <script> blocks with no build step - a
+     hash-locked policy here breaks on every ordinary edit unless the hash is
+     recomputed at deploy time, which proved too fragile for how this file
+     gets updated. Everything else stays locked down: no other script origin,
+     no framing, no embeds, and network/image loads restricted to the exact
+     domains the app actually calls. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' https://qkdvetofbsoynkfprlos.supabase.co https://api.stadiumbuilds.io data:; connect-src 'self' https://qkdvetofbsoynkfprlos.supabase.co wss://qkdvetofbsoynkfprlos.supabase.co; font-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none';">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -948,6 +948,8 @@
     line-height: 1;
   }
   .icon-btn:hover { color: #94a3b8; }
+  .icon-btn.lock-btn.locked { color: #eab308; }
+  .icon-btn.lock-btn.locked:hover { color: #facc15; }
 
   .swap-row {
     display: flex;
@@ -1212,6 +1214,7 @@
         <button class="btn-small" id="copyInviteBtn">⎘ Copy invite link</button>
         <button class="btn-small" id="copyHostLinkBtn" style="display:none;">👑 Copy Host Link</button>
         <button class="btn-small" id="reshuffleBtn" style="display:none;">🔀 Reshuffle Teams</button>
+        <button class="btn-small" id="rollAllBtn" style="display:none;">🎲 Roll All</button>
         <button class="btn-small" id="leaveLobbyBtn">✕ Leave</button>
       </div>
       <div class="whoami">
@@ -1753,6 +1756,7 @@ document.getElementById('joinLobbyBtn').addEventListener('click', () => {
 });
 document.getElementById('leaveLobbyBtn').addEventListener('click', leaveLobby);
 document.getElementById('reshuffleBtn').addEventListener('click', reshuffleTeams);
+document.getElementById('rollAllBtn').addEventListener('click', rollAllForLobby);
 document.getElementById('copyInviteBtn').addEventListener('click', () => {
   if (!lobby) return;
   const url = `${location.origin}${location.pathname}?lobby=${lobby.code}`;
@@ -1946,7 +1950,8 @@ async function createLobby() {
     team: teamOf[e.slot],
     role: null,
     desiredRole: e.role,
-    heroId: null, heroName: null, heroRole: null, build: null
+    heroId: null, heroName: null, heroRole: null, build: null,
+    locked: false
   }));
   const roleConflicts = assignRolesWithPreferences(players);
 
@@ -2178,6 +2183,7 @@ function renderLobbyRoom() {
   };
 
   document.getElementById('reshuffleBtn').style.display = isHost ? '' : 'none';
+  document.getElementById('rollAllBtn').style.display = isHost ? '' : 'none';
   document.getElementById('copyHostLinkBtn').style.display = isHost ? '' : 'none';
   document.getElementById('hostHint').style.display = isHost ? 'none' : '';
 
@@ -2233,6 +2239,9 @@ function renderTeamColumn(team, containerId, isHost) {
   });
   container.querySelectorAll('.remove-btn').forEach(btn => {
     btn.addEventListener('click', () => removePlayer(btn.dataset.pid));
+  });
+  container.querySelectorAll('.lock-btn').forEach(btn => {
+    btn.addEventListener('click', () => togglePlayerLock(btn.dataset.pid));
   });
   container.querySelectorAll('.rename-input').forEach(input => {
     input.addEventListener('keydown', e => {
@@ -2389,7 +2398,8 @@ function addPlayerToTeam(team, containerId) {
   lobby.players.push({
     id: 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     name, team, role,
-    heroId: null, heroName: null, heroRole: null, build: null
+    heroId: null, heroName: null, heroRole: null, build: null,
+    locked: false
   });
   statusEl.textContent = '';
   renderLobbyRoom();
@@ -2453,7 +2463,8 @@ function reshuffleTeams() {
     ...p,
     team: idx < mid ? 'A' : 'B',
     role: null,
-    heroId: null, heroName: null, heroRole: null, build: null
+    heroId: null, heroName: null, heroRole: null, build: null,
+    locked: false
   }));
   assignRolesInPlace(newPlayers);
   lobby.players = newPlayers;
@@ -2462,6 +2473,44 @@ function reshuffleTeams() {
   statusEl.className = 'lobby-status ok';
   renderLobbyRoom();
   broadcastState();
+}
+
+// Lock is scoped purely to "Roll All" - it doesn't touch a player's own
+// individual Roll/Reroll button, it just tells the bulk action to leave that
+// slot alone. Either the player themselves or the host can toggle it, since
+// both have a legitimate reason to protect a build someone's happy with.
+function togglePlayerLock(id) {
+  const player = lobby.players.find(p => p.id === id);
+  if (!player) return;
+  const isMe = lobby.myPlayerId === id;
+  if (!amIHost() && !isMe) return;
+  player.locked = !player.locked;
+  renderLobbyRoom();
+  broadcastState();
+}
+
+// Rolls for every unlocked player, reusing the same per-player roll logic
+// (and spin animation) as a single manual roll. Runs one at a time rather
+// than all at once - rollForPlayer avoids handing a teammate a hero someone
+// else on the team already has, and that check only works if each roll sees
+// the results of the ones before it. Runs silently per-player so the room
+// status shows one aggregate message instead of N messages racing each other.
+async function rollAllForLobby() {
+  if (!amIHost() || !lobby) return;
+  const targets = lobby.players.filter(p => !p.locked);
+  const statusEl = document.getElementById('roomStatus');
+  if (!targets.length) {
+    statusEl.textContent = 'Every player is locked - nothing to roll.';
+    statusEl.className = 'lobby-status error';
+    return;
+  }
+  statusEl.textContent = `Rolling for ${targets.length} player${targets.length > 1 ? 's' : ''}...`;
+  statusEl.className = 'lobby-status';
+  for (const p of targets) {
+    await rollForPlayer(p.id, { silent: true });
+  }
+  statusEl.textContent = `Rolled builds for ${targets.length} player${targets.length > 1 ? 's' : ''}.`;
+  statusEl.className = 'lobby-status ok';
 }
 
 let rollingPlayers = {};
@@ -2502,6 +2551,12 @@ function playerRowHtml(p, isHost) {
     : `${safeName} ${isMe ? '<span class="me-tag">YOU</span>' : ''}
         ${isHost ? `<button type="button" class="icon-btn rename-btn" data-pid="${p.id}" title="Rename ${safeName}" aria-label="Rename ${safeName}">✎</button>` : ''}`;
 
+  const canLock = isHost || isMe;
+  const lockTitle = p.locked ? 'Unlock build (Roll All will include this player again)' : 'Lock build (Roll All will skip this player)';
+  const lockBtn = canLock
+    ? `<button type="button" class="icon-btn lock-btn ${p.locked ? 'locked' : ''}" data-pid="${p.id}" title="${lockTitle}" aria-label="${p.locked ? 'Unlock' : 'Lock'} build for ${safeName}">${p.locked ? '🔒' : '🔓'}</button>`
+    : '';
+
   const rowClasses = ['player-row', isMe ? 'is-me' : '', rolling ? 'is-rolling' : '', justLanded[p.id] ? 'roll-landed' : ''].filter(Boolean).join(' ');
 
   return `<div class="${rowClasses}" id="prow-${p.id}">
@@ -2510,6 +2565,7 @@ function playerRowHtml(p, isHost) {
       <div class="player-name">
         <span class="role-badge-fixed ${p.role}">${roleIcon} ${p.role || '?'}</span>
         ${nameHtml}
+        ${lockBtn}
         ${isHost ? `<button type="button" class="icon-btn remove-btn" data-pid="${p.id}" title="Remove ${safeName}" aria-label="Remove ${safeName}">✕</button>` : ''}
       </div>
       ${rightSide}
@@ -2539,7 +2595,7 @@ function stopRollSpin(playerId) {
 
 const ROLL_SPIN_MS = 1100;
 
-async function rollForPlayer(playerId) {
+async function rollForPlayer(playerId, { silent = false } = {}) {
   await heroesReadyPromise;
   const player = lobby.players.find(p => p.id === playerId);
   if (!player || !allHeroes.length) return;
@@ -2555,8 +2611,10 @@ async function rollForPlayer(playerId) {
   if (!freePool.length) return;
 
   const statusEl = document.getElementById('roomStatus');
-  statusEl.textContent = `Rolling for ${player.name}...`;
-  statusEl.className = 'lobby-status';
+  if (!silent) {
+    statusEl.textContent = `Rolling for ${player.name}...`;
+    statusEl.className = 'lobby-status';
+  }
 
   const hero = freePool[Math.floor(Math.random() * freePool.length)];
   startRollSpin(playerId, rolePool.length ? rolePool : allHeroes);
@@ -2618,7 +2676,7 @@ async function rollForPlayer(playerId) {
     final_round_powers: build.final_round_powers
   };
 
-  statusEl.textContent = '';
+  if (!silent) statusEl.textContent = '';
   justLanded[playerId] = true;
   renderLobbyRoom();
   broadcastState();
