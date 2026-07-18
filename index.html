@@ -2682,9 +2682,11 @@ function rerollsLeft(player) {
   return Math.max(0, lobby.rerollLimit - (player.rerollsUsed || 0));
 }
 
-// Rolls for every unlocked (and, for anyone who already has a build, still
-// under their reroll limit) player at once. Hero picks still happen one at a
-// time in a plain synchronous loop first - that's cheap and is what keeps two
+// Rolls for every unlocked player at once. A host-set reroll limit only caps
+// each player's own individual Reroll button - Roll All is a separate host
+// tool and doesn't draw from (or care about) that budget, so it always
+// includes everyone who isn't locked. Hero picks still happen one at a time
+// in a plain synchronous loop first - that's cheap and is what keeps two
 // Damage players on the same team from ever landing on the same hero - but
 // once every pick is locked in, the network fetch and the spin animation for
 // every player run in parallel via Promise.all instead of waiting on each
@@ -2694,13 +2696,9 @@ async function rollAllForLobby() {
   await heroesReadyPromise;
   const statusEl = document.getElementById('roomStatus');
 
-  const eligible = lobby.players.filter(p => {
-    if (p.locked) return false;
-    if (p.build && rerollsLeft(p) <= 0) return false;
-    return true;
-  });
+  const eligible = lobby.players.filter(p => !p.locked);
   if (!eligible.length) {
-    statusEl.textContent = 'Nothing to roll - everyone is locked or out of rerolls.';
+    statusEl.textContent = 'Every player is locked - nothing to roll.';
     statusEl.className = 'lobby-status error';
     return;
   }
@@ -2717,7 +2715,7 @@ async function rollAllForLobby() {
     if (!usedHeroIds.has(p.team)) usedHeroIds.set(p.team, new Set());
     const teamUsed = usedHeroIds.get(p.team);
     const hero = pickHeroForPlayer(p, teamUsed);
-    if (hero) { teamUsed.add(hero.id); picks.push({ player: p, hero, wasReroll: !!p.build }); }
+    if (hero) { teamUsed.add(hero.id); picks.push({ player: p, hero }); }
   }
   if (!picks.length) {
     statusEl.textContent = 'Could not find heroes to roll for anyone.';
@@ -2745,7 +2743,6 @@ async function rollAllForLobby() {
   results.forEach(r => {
     if (r.ok) {
       landed++;
-      if (r.wasReroll) r.player.rerollsUsed = (r.player.rerollsUsed || 0) + 1;
       justLanded[r.player.id] = true;
     }
   });
@@ -2793,6 +2790,10 @@ function playerRowHtml(p, isHost) {
     line3 = `<span class="stat-mini"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>${likes}</span><span class="stat-mini"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${views}</span>`;
     actionBtns.push(`<a class="btn-small" href="https://stadiumbuilds.io/build/${encodeURIComponent(p.build.id)}" target="_blank" rel="noopener">Open ↗</a>`);
     if (isMe) {
+      // Only the player themselves gets to see their own count and act on it -
+      // a host viewing someone else's row gets a read-only figure below
+      // instead (see the "no build yet" branches), never a button that would
+      // let them reroll on another player's behalf.
       const left = rerollsLeft(p);
       if (left <= 0) {
         actionBtns.push(`<span class="reroll-count">No rerolls left</span>`);
@@ -2800,12 +2801,25 @@ function playerRowHtml(p, isHost) {
         actionBtns.push(`<button type="button" class="btn-small btn-reroll-slot" data-pid="${p.id}" aria-label="Reroll ${escapeHtml(p.role || '')}">🎲 Reroll</button>`);
         if (Number.isFinite(left)) actionBtns.push(`<span class="reroll-count">${left} left</span>`);
       }
+    } else if (isHost && lobby.rerollLimit != null) {
+      const left = rerollsLeft(p);
+      actionBtns.push(`<span class="reroll-count">${left <= 0 ? 'No rerolls left' : left + ' left'}</span>`);
     }
   } else if (isMe) {
-    avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
+    // A host-set hero preference shows up as this player's picture even
+    // before they've rolled, so everyone can see who's "called" a hero going
+    // in - it's just cosmetic here, the actual pick still happens (and can
+    // still fall back to random) when they roll.
+    const prefHero = p.preferredHeroId ? allHeroes.find(h => h.id === p.preferredHeroId) : null;
+    avatar = prefHero
+      ? `<img class="player-avatar" src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(prefHero.name)}.webp" alt="${escapeHtml(prefHero.name)}">`
+      : `<div class="player-avatar placeholder">${roleIcon}</div>`;
     actionBtns.push(`<button type="button" class="btn-roll-slot" data-pid="${p.id}">🎲 Roll ${escapeHtml(p.role || '')}</button>`);
   } else {
-    avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
+    const prefHero = p.preferredHeroId ? allHeroes.find(h => h.id === p.preferredHeroId) : null;
+    avatar = prefHero
+      ? `<img class="player-avatar" src="https://qkdvetofbsoynkfprlos.supabase.co/storage/v1/object/public/images/heroes/Icon-${encodeHeroName(prefHero.name)}.webp" alt="${escapeHtml(prefHero.name)}">`
+      : `<div class="player-avatar placeholder">${roleIcon}</div>`;
     line1 = `<span style="color:#334155;">Waiting to roll…</span>`;
   }
 
