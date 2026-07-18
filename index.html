@@ -115,6 +115,13 @@
   .mode-tab:hover { border-color: #334155; color: #94a3b8; }
   .mode-tab.active { background: #7c3aed; border-color: #7c3aed; color: #fff; }
 
+  /* soloView never had an explicit width (unlike its sibling .lobby-view),
+     so as a flex child of body (align-items: center, not stretch) it was
+     shrinking to fit its content instead of using the space .layout's own
+     width:100% assumed was there - harmless with the old plain hero-grid,
+     but it starves the new side-by-side columns below of room to work with. */
+  #soloView { width: 100%; max-width: 1400px; }
+
   /* ── Two-panel layout ── */
   .layout {
     width: 100%;
