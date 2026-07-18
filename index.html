@@ -120,12 +120,12 @@
      shrinking to fit its content instead of using the space .layout's own
      width:100% assumed was there - harmless with the old plain hero-grid,
      but it starves the new side-by-side columns below of room to work with. */
-  #soloView { width: 100%; max-width: 1400px; }
+  #soloView { width: 100%; max-width: 1520px; }
 
   /* ── Two-panel layout ── */
   .layout {
     width: 100%;
-    max-width: 1400px;
+    max-width: 1520px;
     display: grid;
     grid-template-columns: 1fr 380px;
     gap: 28px;
@@ -259,11 +259,18 @@
     align-items: flex-start;
   }
   .hero-role-col { flex: 1 1 230px; min-width: 210px; max-width: 260px; }
+  /* Flex instead of grid here on purpose: a grid leaves empty trailing cells
+     when a role's hero count isn't a multiple of 3, which pins the last row
+     to the left. Flex-wrap + justify-content:center centers whatever's left
+     over in that last row instead, so an odd one (or two) out doesn't look
+     like a mistake. Each card gets a fixed flex-basis for exactly 3 per row. */
   .hero-role-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
     gap: 8px;
   }
+  .hero-role-grid .hero-card { flex: 0 0 calc((100% - 16px) / 3); width: auto; }
 
   .hero-card {
     display: flex;
@@ -1219,7 +1226,6 @@
     .hero-picker-side { max-width: none; }
     .hero-grid.grouped { flex-direction: column; }
     .hero-role-col { max-width: none; }
-    .hero-role-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
 
     .role-roll-row { flex-wrap: wrap; }
     .btn-role-roll { flex: 1 1 30%; }
