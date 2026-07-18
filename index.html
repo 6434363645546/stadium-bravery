@@ -960,8 +960,47 @@
     line-height: 1;
   }
   .icon-btn:hover { color: #94a3b8; }
-  .icon-btn.lock-btn.locked { color: #eab308; }
-  .icon-btn.lock-btn.locked:hover { color: #facc15; }
+
+  /* Locked vs unlocked used to differ only by emoji glyph (🔒 vs 🔓) and a
+     small color shift - too subtle to read at a glance. Now unlocked is a
+     muted outline pill and locked is a solid filled amber badge, so the two
+     states are distinguishable by shape/fill, not just which padlock icon
+     rendered. */
+  .icon-btn.lock-btn {
+    font-size: 0.8rem;
+    padding: 1px 5px;
+    border-radius: 6px;
+    border: 1px solid #1e293b;
+    background: #0b0f1a;
+    color: #64748b;
+  }
+  .icon-btn.lock-btn:hover { color: #cbd5e1; border-color: #334155; }
+  .icon-btn.lock-btn.locked {
+    color: #fff;
+    background: #b45309;
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.45);
+  }
+  .icon-btn.lock-btn.locked:hover { background: #d97706; }
+
+  /* Like/view counters as small stroked SVGs (same style as the solo-roll
+     result stat pills) instead of the ❤/👁 emoji - the eye emoji in
+     particular renders flat/squished in a lot of system emoji fonts. */
+  .stat-mini { display: inline-flex; align-items: center; gap: 3px; margin-right: 9px; }
+  .stat-mini svg { flex-shrink: 0; position: relative; top: 0.5px; }
+
+  .reroll-limit-row { display: flex; align-items: center; gap: 8px; margin: 10px 0 4px; }
+  .reroll-limit-row label { font-size: 0.78rem; color: #94a3b8; }
+  .reroll-limit-input {
+    width: 84px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #1e293b;
+    background: #0b0f1a;
+    color: #e2e8f0;
+    font-size: 0.8rem;
+  }
+  .reroll-count { color: #475569; font-size: 0.68rem; margin-left: 4px; }
 
   .swap-row {
     display: flex;
@@ -1203,8 +1242,12 @@
     <div class="lobby-home">
       <div class="lobby-card">
         <h3>Create a Lobby</h3>
-        <p class="hint">Enter up to 10 player names. Optionally pick a role for anyone who wants a specific one, a preferred hero, and use "Keep with / apart" to group friends together or split up rivals - leave any of these on its default to let the shuffle and rolls decide. Teams are shuffled automatically into Team A / Team B, with a locked 1 Tank / 2 Damage / 2 Support comp per team. A preferred hero is used whenever that player rolls as long as it matches their role and isn't already taken on their team - otherwise it's rolled at random like normal. Swap roles between players any time, and reshuffle teams for a new game without retyping names. No two players on the same team will get the same hero.</p>
+        <p class="hint">Enter up to 10 player names. Optionally pick a role for anyone who wants a specific one, a preferred hero, and use "Keep with / apart" to group friends together or split up rivals - leave any of these on its default to let the shuffle and rolls decide. Teams are shuffled automatically into Team A / Team B, with a locked 1 Tank / 2 Damage / 2 Support comp per team. A preferred hero is used whenever that player rolls as long as it matches their role and isn't already taken on their team - otherwise it's rolled at random like normal. Swap roles between players any time, and reshuffle teams for a new game without retyping names. No two players on the same team will get the same hero. Optionally cap how many times each player can reroll their own build - leave it blank for unlimited rerolls.</p>
         <div class="name-inputs" id="createNameInputs"></div>
+        <div class="reroll-limit-row">
+          <label for="rerollLimitInput">Max rerolls per player</label>
+          <input type="number" id="rerollLimitInput" class="reroll-limit-input" min="0" step="1" placeholder="Unlimited">
+        </div>
         <button class="btn-lobby-primary" id="createLobbyBtn">🎲 Build Teams &amp; Create Lobby</button>
         <div class="lobby-status" id="createStatus"></div>
       </div>
@@ -1981,16 +2024,20 @@ async function createLobby() {
     desiredRole: e.role,
     preferredHeroId: e.heroPref,
     heroId: null, heroName: null, heroRole: null, build: null,
-    locked: false
+    locked: false,
+    rerollsUsed: 0
   }));
   const roleConflicts = assignRolesWithPreferences(players);
+
+  const rerollLimitRaw = document.getElementById('rerollLimitInput').value.trim();
+  const rerollLimit = rerollLimitRaw === '' ? null : Math.max(0, parseInt(rerollLimitRaw, 10) || 0);
 
   const code = genLobbyCode();
   const hostToken = genToken();
   statusEl.textContent = 'Creating lobby...';
   statusEl.className = 'lobby-status';
 
-  await enterLobby(code, players, hostToken);
+  await enterLobby(code, players, hostToken, rerollLimit);
   statusEl.textContent = '';
 
   const notes = [];
@@ -2010,7 +2057,7 @@ async function joinLobby(code) {
   await enterLobby(code, null, null);
 }
 
-async function enterLobby(code, initialPlayers, hostToken) {
+async function enterLobby(code, initialPlayers, hostToken, rerollLimit) {
   if (lobby && lobby.channel) {
     await supa.removeChannel(lobby.channel);
   }
@@ -2026,6 +2073,7 @@ async function enterLobby(code, initialPlayers, hostToken) {
     hostTokenHash: null,
     iAmHost: !!hostToken,
     pendingSwap: null,
+    rerollLimit: (rerollLimit === undefined) ? null : rerollLimit,
     reconnecting: false,
     reconnectAttempts: 0
   };
@@ -2050,9 +2098,16 @@ function setupLobbyChannel() {
   lobby.channel = channel;
 
   channel.on('broadcast', { event: 'state_sync' }, async ({ payload }) => {
+    // Anyone whose roll just landed (they now have a heroId that the previous
+    // snapshot didn't) needs their local cosmetic spin (started off a
+    // roll_start broadcast, see below) stopped and swapped for the landed
+    // flash - otherwise a spectator's spin would just keep cycling randomly
+    // until its safety timeout, well after the real result already arrived.
+    const previouslyRolling = Object.keys(rollingPlayers);
     lobby.players = payload.players;
     lobby.hostTokenHash = payload.hostTokenHash || lobby.hostTokenHash;
     lobby.pendingSwap = payload.pendingSwap || null;
+    if (payload.rerollLimit !== undefined) lobby.rerollLimit = payload.rerollLimit;
     lobby.haveState = true;
     if (claimToken && !lobby.iAmHost) {
       const claimHash = await sha256Hex(claimToken);
@@ -2062,14 +2117,41 @@ function setupLobbyChannel() {
       }
     }
     await refreshHostStatus();
+    previouslyRolling.forEach(id => {
+      const p = lobby.players.find(pp => pp.id === id);
+      if (p && p.heroId) {
+        stopRollSpin(id);
+        justLanded[id] = true;
+        setTimeout(() => { delete justLanded[id]; renderLobbyRoom(); }, 700);
+      }
+    });
     const joinStatusEl = document.getElementById('joinStatus');
     if (joinStatusEl) joinStatusEl.textContent = '';
     renderLobbyRoom();
   });
 
+  // Purely cosmetic on the receiving end - it doesn't roll anything itself,
+  // it just starts the same slot-machine spin animation locally so everyone
+  // watching a roll happen sees it too, not just the "before" and "after"
+  // snapshots. The roller's own client already started its own spin directly
+  // and ignores this (broadcast self is off), and a safety timeout clears it
+  // if the real state_sync landing never arrives (dropped message, etc).
+  channel.on('broadcast', { event: 'roll_start' }, ({ payload }) => {
+    (payload.playerIds || []).forEach(id => {
+      if (rollingPlayers[id]) return;
+      const p = lobby.players.find(pp => pp.id === id);
+      if (!p) return;
+      const rolePool = p.role ? allHeroes.filter(h => h.role === p.role) : allHeroes;
+      startRollSpin(id, rolePool.length ? rolePool : allHeroes);
+      setTimeout(() => {
+        if (rollingPlayers[id]) { stopRollSpin(id); renderLobbyRoom(); }
+      }, ROLL_SPIN_MS + 4000);
+    });
+  });
+
   channel.on('broadcast', { event: 'state_request' }, () => {
     if (lobby.haveState) {
-      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap } });
+      channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap, rerollLimit: lobby.rerollLimit } });
     }
   });
 
@@ -2080,7 +2162,7 @@ function setupLobbyChannel() {
       lobby.reconnectAttempts = 0;
 
       if (lobby.haveState) {
-        channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap } });
+        channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap, rerollLimit: lobby.rerollLimit } });
         showLobbyRoom();
       } else {
         showLobbyRoom();
@@ -2154,7 +2236,18 @@ function leaveLobby() {
 
 function broadcastState() {
   if (!lobby || !lobby.channel) return;
-  lobby.channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap } });
+  lobby.channel.send({ type: 'broadcast', event: 'state_sync', payload: { players: lobby.players, hostTokenHash: lobby.hostTokenHash, pendingSwap: lobby.pendingSwap, rerollLimit: lobby.rerollLimit } });
+}
+
+// Tells everyone else's client "these players are rolling right now" so their
+// screens can play the same spin animation locally instead of only seeing the
+// build appear once it's done (see the roll_start listener in
+// setupLobbyChannel). Best-effort only - if it doesn't arrive, the worst case
+// is a spectator misses the animation and just sees the landed result, same
+// as before this existed.
+function broadcastRollStart(playerIds) {
+  if (!lobby || !lobby.channel) return;
+  lobby.channel.send({ type: 'broadcast', event: 'roll_start', payload: { playerIds } });
 }
 
 function syncMyIdentity() {
@@ -2430,7 +2523,8 @@ function addPlayerToTeam(team, containerId) {
     name, team, role,
     preferredHeroId: null,
     heroId: null, heroName: null, heroRole: null, build: null,
-    locked: false
+    locked: false,
+    rerollsUsed: 0
   });
   statusEl.textContent = '';
   renderLobbyRoom();
@@ -2495,7 +2589,8 @@ function reshuffleTeams() {
     team: idx < mid ? 'A' : 'B',
     role: null,
     heroId: null, heroName: null, heroRole: null, build: null,
-    locked: false
+    locked: false,
+    rerollsUsed: 0
   }));
   assignRolesInPlace(newPlayers);
   lobby.players = newPlayers;
@@ -2520,28 +2615,149 @@ function togglePlayerLock(id) {
   broadcastState();
 }
 
-// Rolls for every unlocked player, reusing the same per-player roll logic
-// (and spin animation) as a single manual roll. Runs one at a time rather
-// than all at once - rollForPlayer avoids handing a teammate a hero someone
-// else on the team already has, and that check only works if each roll sees
-// the results of the ones before it. Runs silently per-player so the room
-// status shows one aggregate message instead of N messages racing each other.
+// Picks a hero for a player - a host-set preference wins if it's still free
+// for their role, otherwise a random free hero from the role's pool. Pure and
+// synchronous: it only reads/writes the usedHeroIds set the caller passes in,
+// so a caller can loop over several players back-to-back (still respecting
+// "no duplicate hero per team") before doing anything asynchronous like a
+// network fetch.
+function pickHeroForPlayer(player, usedHeroIds) {
+  const rolePool = player.role ? allHeroes.filter(h => h.role === player.role) : allHeroes;
+  if (!rolePool.length) return null;
+  let freePool = rolePool.filter(h => !usedHeroIds.has(h.id));
+  if (!freePool.length) freePool = rolePool; // fallback if that role is exhausted on the team
+  let hero = null;
+  if (player.preferredHeroId) {
+    const preferred = rolePool.find(h => h.id === player.preferredHeroId);
+    if (preferred && !usedHeroIds.has(preferred.id)) hero = preferred;
+  }
+  if (!hero) hero = freePool[Math.floor(Math.random() * freePool.length)];
+  return hero;
+}
+
+// Fetches and filters builds for an already-chosen hero and assigns the
+// result onto the player object. Doesn't touch rollingPlayers, render, or
+// broadcast - callers (rollForPlayer for a single roll, rollAllForLobby for
+// several at once) decide when those should happen so a bulk roll can reveal
+// everyone together instead of one state_sync per player.
+async function fetchAndAssignBuild(player, hero) {
+  let builds;
+  try {
+    builds = await fetchBuildsForHeroIds([hero.id]);
+  } catch (e) {
+    return { ok: false, reason: 'fetch-failed' };
+  }
+  if (!Array.isArray(builds) || builds.length === 0) return { ok: false, reason: 'no-builds' };
+  builds = builds.filter(hasEnoughPowers);
+  if (builds.length === 0) return { ok: false, reason: 'no-powers' };
+  if (daysFilter > 0) {
+    const cutoff = Date.now() - daysFilter * 24 * 60 * 60 * 1000;
+    const recent = builds.filter(b => new Date(b.created_at).getTime() > cutoff);
+    if (recent.length > 0) builds = recent;
+  }
+  if (modeFilter) {
+    const byMode = builds.filter(b => b.mode && b.mode.toLowerCase() === modeFilter);
+    if (byMode.length > 0) builds = byMode;
+  }
+  const build = builds[Math.floor(Math.random() * builds.length)];
+  player.heroId = hero.id;
+  player.heroName = hero.name;
+  player.heroRole = hero.role;
+  player.build = {
+    id: build.id,
+    title: build.title,
+    mode: build.mode,
+    season_number: build.season_number,
+    user_username: build.user_username,
+    created_at: build.created_at,
+    final_round_powers: build.final_round_powers,
+    like_count: build.like_count,
+    view_count: build.view_count
+  };
+  return { ok: true };
+}
+
+function rerollsLeft(player) {
+  if (lobby.rerollLimit == null) return Infinity;
+  return Math.max(0, lobby.rerollLimit - (player.rerollsUsed || 0));
+}
+
+// Rolls for every unlocked (and, for anyone who already has a build, still
+// under their reroll limit) player at once. Hero picks still happen one at a
+// time in a plain synchronous loop first - that's cheap and is what keeps two
+// Damage players on the same team from ever landing on the same hero - but
+// once every pick is locked in, the network fetch and the spin animation for
+// every player run in parallel via Promise.all instead of waiting on each
+// player before starting the next, so the whole team rolls together.
 async function rollAllForLobby() {
   if (!amIHost() || !lobby) return;
-  const targets = lobby.players.filter(p => !p.locked);
+  await heroesReadyPromise;
   const statusEl = document.getElementById('roomStatus');
-  if (!targets.length) {
-    statusEl.textContent = 'Every player is locked - nothing to roll.';
+
+  const eligible = lobby.players.filter(p => {
+    if (p.locked) return false;
+    if (p.build && rerollsLeft(p) <= 0) return false;
+    return true;
+  });
+  if (!eligible.length) {
+    statusEl.textContent = 'Nothing to roll - everyone is locked or out of rerolls.';
     statusEl.className = 'lobby-status error';
     return;
   }
-  statusEl.textContent = `Rolling for ${targets.length} player${targets.length > 1 ? 's' : ''}...`;
-  statusEl.className = 'lobby-status';
-  for (const p of targets) {
-    await rollForPlayer(p.id, { silent: true });
+
+  const usedHeroIds = new Map(); // team -> Set of heroIds already spoken for
+  lobby.players.forEach(p => {
+    if (p.heroId && !eligible.includes(p)) {
+      if (!usedHeroIds.has(p.team)) usedHeroIds.set(p.team, new Set());
+      usedHeroIds.get(p.team).add(p.heroId);
+    }
+  });
+  const picks = [];
+  for (const p of eligible) {
+    if (!usedHeroIds.has(p.team)) usedHeroIds.set(p.team, new Set());
+    const teamUsed = usedHeroIds.get(p.team);
+    const hero = pickHeroForPlayer(p, teamUsed);
+    if (hero) { teamUsed.add(hero.id); picks.push({ player: p, hero, wasReroll: !!p.build }); }
   }
-  statusEl.textContent = `Rolled builds for ${targets.length} player${targets.length > 1 ? 's' : ''}.`;
-  statusEl.className = 'lobby-status ok';
+  if (!picks.length) {
+    statusEl.textContent = 'Could not find heroes to roll for anyone.';
+    statusEl.className = 'lobby-status error';
+    return;
+  }
+
+  statusEl.textContent = `Rolling for ${picks.length} player${picks.length > 1 ? 's' : ''}...`;
+  statusEl.className = 'lobby-status';
+
+  broadcastRollStart(picks.map(pk => pk.player.id));
+  picks.forEach(({ player }) => {
+    const rolePool = player.role ? allHeroes.filter(h => h.role === player.role) : allHeroes;
+    startRollSpin(player.id, rolePool.length ? rolePool : allHeroes);
+  });
+
+  const [results] = await Promise.all([
+    Promise.all(picks.map(pk => fetchAndAssignBuild(pk.player, pk.hero).then(r => ({ ...pk, ...r })))),
+    new Promise(res => setTimeout(res, ROLL_SPIN_MS))
+  ]);
+
+  picks.forEach(({ player }) => stopRollSpin(player.id));
+
+  let landed = 0;
+  results.forEach(r => {
+    if (r.ok) {
+      landed++;
+      if (r.wasReroll) r.player.rerollsUsed = (r.player.rerollsUsed || 0) + 1;
+      justLanded[r.player.id] = true;
+    }
+  });
+
+  renderLobbyRoom();
+  broadcastState();
+  setTimeout(() => { results.forEach(r => delete justLanded[r.player.id]); renderLobbyRoom(); }, 700);
+
+  statusEl.textContent = landed
+    ? `Rolled builds for ${landed} player${landed > 1 ? 's' : ''}.`
+    : 'Could not roll a build for anyone - try again.';
+  statusEl.className = landed ? 'lobby-status ok' : 'lobby-status error';
 }
 
 let rollingPlayers = {};
@@ -2571,9 +2787,20 @@ function playerRowHtml(p, isHost) {
     line2 = `<span title="${safeBuildTitle}">${safeBuildTitle}</span>`;
     const likes = (p.build.like_count ?? 0).toLocaleString();
     const views = (p.build.view_count ?? 0).toLocaleString();
-    line3 = `❤ ${likes}&nbsp;&nbsp;👁 ${views}`;
+    // Stroked SVGs instead of the ❤/👁 emoji - same icon set as the solo-roll
+    // result view. The eye emoji in particular renders flat/squished in a lot
+    // of system emoji fonts; a vector icon looks the same everywhere.
+    line3 = `<span class="stat-mini"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>${likes}</span><span class="stat-mini"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>${views}</span>`;
     actionBtns.push(`<a class="btn-small" href="https://stadiumbuilds.io/build/${encodeURIComponent(p.build.id)}" target="_blank" rel="noopener">Open ↗</a>`);
-    if (isMe) actionBtns.push(`<button type="button" class="btn-small btn-reroll-slot" data-pid="${p.id}" aria-label="Reroll ${escapeHtml(p.role || '')}">🎲 Reroll</button>`);
+    if (isMe) {
+      const left = rerollsLeft(p);
+      if (left <= 0) {
+        actionBtns.push(`<span class="reroll-count">No rerolls left</span>`);
+      } else {
+        actionBtns.push(`<button type="button" class="btn-small btn-reroll-slot" data-pid="${p.id}" aria-label="Reroll ${escapeHtml(p.role || '')}">🎲 Reroll</button>`);
+        if (Number.isFinite(left)) actionBtns.push(`<span class="reroll-count">${left} left</span>`);
+      }
+    }
   } else if (isMe) {
     avatar = `<div class="player-avatar placeholder">${roleIcon}</div>`;
     actionBtns.push(`<button type="button" class="btn-roll-slot" data-pid="${p.id}">🎲 Roll ${escapeHtml(p.role || '')}</button>`);
@@ -2639,99 +2866,55 @@ async function rollForPlayer(playerId, { silent = false } = {}) {
   const player = lobby.players.find(p => p.id === playerId);
   if (!player || !allHeroes.length) return;
   if (rollingPlayers[playerId]) return; // already spinning, ignore repeat clicks
-  const role = player.role;
+
+  const isReroll = !!player.build;
+  const statusEl = document.getElementById('roomStatus');
+  if (isReroll && rerollsLeft(player) <= 0) {
+    if (!silent) {
+      statusEl.textContent = `${player.name} has no rerolls left.`;
+      statusEl.className = 'lobby-status error';
+    }
+    return;
+  }
 
   const teammates = lobby.players.filter(p => p.team === player.team && p.id !== player.id && p.heroId);
   const usedHeroIds = new Set(teammates.map(p => p.heroId));
+  const hero = pickHeroForPlayer(player, usedHeroIds);
+  if (!hero) return;
+  const rolePool = player.role ? allHeroes.filter(h => h.role === player.role) : allHeroes;
 
-  const rolePool = role ? allHeroes.filter(h => h.role === role) : allHeroes;
-  let freePool = rolePool.filter(h => !usedHeroIds.has(h.id));
-  if (!freePool.length) freePool = rolePool; // fallback if that role is exhausted on the team
-  if (!freePool.length) return;
-
-  const statusEl = document.getElementById('roomStatus');
   if (!silent) {
     statusEl.textContent = `Rolling for ${player.name}...`;
     statusEl.className = 'lobby-status';
   }
 
-  // A host-set hero preference wins as long as it's actually available for
-  // this roll - same role as the player's slot, and not already claimed by a
-  // teammate who's already rolled. If either of those doesn't hold, fall
-  // back to a random pick from the free pool exactly like before, rather
-  // than hard-failing the roll over a preference that can't be honored.
-  let hero = null;
-  if (player.preferredHeroId) {
-    const preferred = rolePool.find(h => h.id === player.preferredHeroId);
-    if (preferred && !usedHeroIds.has(preferred.id)) hero = preferred;
-  }
-  if (!hero) hero = freePool[Math.floor(Math.random() * freePool.length)];
+  broadcastRollStart([playerId]);
   startRollSpin(playerId, rolePool.length ? rolePool : allHeroes);
 
-  let builds = null;
-  let failed = false;
-  try {
-    const [fetched] = await Promise.all([
-      fetchBuildsForHeroIds([hero.id]),
-      new Promise(res => setTimeout(res, ROLL_SPIN_MS))
-    ]);
-    builds = fetched;
-  } catch (e) {
-    failed = true;
-  }
+  const [result] = await Promise.all([
+    fetchAndAssignBuild(player, hero),
+    new Promise(res => setTimeout(res, ROLL_SPIN_MS))
+  ]);
 
   stopRollSpin(playerId);
 
-  if (failed) {
-    statusEl.textContent = 'Something went wrong rolling that build. Try again.';
+  if (!result.ok) {
+    statusEl.textContent = result.reason === 'fetch-failed'
+      ? 'Something went wrong rolling that build. Try again.'
+      : result.reason === 'no-powers'
+        ? `No builds with at least ${MIN_BUILD_POWERS} powers found for ${hero.name}. Try again.`
+        : `No builds found for ${hero.name}. Try again.`;
     statusEl.className = 'lobby-status error';
     renderLobbyRoom();
     return;
   }
-  if (!Array.isArray(builds) || builds.length === 0) {
-    statusEl.textContent = `No builds found for ${hero.name}. Try again.`;
-    statusEl.className = 'lobby-status error';
-    renderLobbyRoom();
-    return;
-  }
-  builds = builds.filter(hasEnoughPowers);
-  if (builds.length === 0) {
-    statusEl.textContent = `No builds with at least ${MIN_BUILD_POWERS} powers found for ${hero.name}. Try again.`;
-    statusEl.className = 'lobby-status error';
-    renderLobbyRoom();
-    return;
-  }
-  if (daysFilter > 0) {
-    const cutoff = Date.now() - daysFilter * 24 * 60 * 60 * 1000;
-    const recent = builds.filter(b => new Date(b.created_at).getTime() > cutoff);
-    if (recent.length > 0) builds = recent;
-  }
-  if (modeFilter) {
-    const byMode = builds.filter(b => b.mode && b.mode.toLowerCase() === modeFilter);
-    if (byMode.length > 0) builds = byMode;
-  }
-  const build = builds[Math.floor(Math.random() * builds.length)];
 
-  player.heroId = hero.id;
-  player.heroName = hero.name;
-  player.heroRole = hero.role;
-  player.build = {
-    id: build.id,
-    title: build.title,
-    mode: build.mode,
-    season_number: build.season_number,
-    user_username: build.user_username,
-    created_at: build.created_at,
-    final_round_powers: build.final_round_powers,
-    like_count: build.like_count,
-    view_count: build.view_count
-  };
-
+  if (isReroll) player.rerollsUsed = (player.rerollsUsed || 0) + 1;
   if (!silent) statusEl.textContent = '';
   justLanded[playerId] = true;
   renderLobbyRoom();
   broadcastState();
-  setTimeout(() => { delete justLanded[playerId]; }, 700);
+  setTimeout(() => { delete justLanded[playerId]; renderLobbyRoom(); }, 700);
 }
 
 // Auto-join if the page was opened with ?lobby=CODE
