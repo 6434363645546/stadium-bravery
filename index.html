@@ -2724,9 +2724,16 @@ function renderPendingSwapBanner(isHost) {
   if (declineBtn) declineBtn.addEventListener('click', declineSwap);
 }
 
+// Fixed display order top to bottom, regardless of the order players were
+// added or rolled in - a roster should always read Tank, then Damage, then
+// Support so it's easy to scan at a glance.
+const ROLE_DISPLAY_ORDER = { Tank: 0, Damage: 1, Support: 2 };
+
 function renderTeamColumn(team, containerId, isHost) {
   const container = document.getElementById(containerId);
-  const group = lobby.players.filter(p => p.team === team);
+  const group = lobby.players.filter(p => p.team === team)
+    .slice()
+    .sort((a, b) => (ROLE_DISPLAY_ORDER[a.role] ?? 99) - (ROLE_DISPLAY_ORDER[b.role] ?? 99));
   const rowsHtml = group.map(p => playerRowHtml(p, isHost)).join('') ||
     '<div style="color:#334155;font-size:0.8rem;">No players on this team.</div>';
   container.innerHTML = rowsHtml + teamControlsHtml(group, isHost);
