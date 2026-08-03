@@ -2297,11 +2297,16 @@ function buildTeamAssignments(entries) {
     }
   });
 
-  groups = shuffleArr(groups);
+  // Larger groups (from "keep with" chains) are placed first so their room
+  // requirement is honored while there's still capacity left on both teams -
+  // placing small groups first can eat up slots that a bigger group needed,
+  // which used to let a team's roster overflow past 5.
+  groups = shuffleArr(groups).sort((a, b) => b.length - a.length);
   const groupTeam = {};
   let countA = 0, countB = 0;
   const total = entries.length;
   const targetA = Math.ceil(total / 2);
+  const targetB = total - targetA;
 
   groups.forEach(group => {
     const root = find(group[0].slot);
@@ -2310,7 +2315,31 @@ function buildTeamAssignments(entries) {
       if (a === root && groupTeam[b]) forced = groupTeam[b] === 'A' ? 'B' : 'A';
       if (b === root && groupTeam[a]) forced = groupTeam[a] === 'A' ? 'B' : 'A';
     });
-    const team = forced || (countA < targetA ? 'A' : (countB < total - targetA ? 'B' : (countA <= countB ? 'A' : 'B')));
+    const remA = targetA - countA;
+    const remB = targetB - countB;
+    const fitsA = group.length <= remA;
+    const fitsB = group.length <= remB;
+    let team;
+    if (forced && ((forced === 'A' && fitsA) || (forced === 'B' && fitsB))) {
+      team = forced;
+    } else if (forced) {
+      // Honoring the "keep apart" request would overflow that team's roster -
+      // team-size cap wins, so fall back to whichever team still has room.
+      conflictCount++;
+      team = fitsA ? 'A' : (fitsB ? 'B' : (remA >= remB ? 'A' : 'B'));
+    } else if (fitsA && fitsB) {
+      team = countA <= countB ? 'A' : 'B';
+    } else if (fitsA) {
+      team = 'A';
+    } else if (fitsB) {
+      team = 'B';
+    } else {
+      // Group is bigger than either team's remaining room (can only happen
+      // with a "keep with" chain larger than 5) - it can't be split, so put
+      // it wherever there's more space and flag it as an unhonored request.
+      conflictCount++;
+      team = remA >= remB ? 'A' : 'B';
+    }
     groupTeam[root] = team;
     if (team === 'A') countA += group.length; else countB += group.length;
   });
